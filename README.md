@@ -1,6 +1,7 @@
 # Muse Note（Next.js + Supabase + Vercel）
 
-初心者でも保守しやすいように、**最小構成**で作った英単語学習アプリです。
+初心者でも保守しやすいように、**最小構成**で作った英単語学習アプリです。  
+この README は、`main` へマージするときに衝突しやすい `README.md` / `package.json` を整理した最新版です。
 
 - フロントエンド: Next.js（App Router）
 - API: Next.js Route Handler
@@ -35,7 +36,7 @@ Supabase の SQL Editor を開いて、次を実行してください。
 - `supabase/schema.sql`
 
 ### 1-5. 単語データ取り込み
-Supabase ダッシュボードの Table Editor で `words` テーブルを開き、CSVを import します。
+Supabase ダッシュボードの Table Editor で `words` テーブルを開き、CSV を import します。
 - `supabase/words_seed.csv`
 
 ### 1-6. 開発サーバー起動
@@ -49,6 +50,8 @@ npm run dev
 
 ## 2. ファイル構成（重要なもの）
 
+- `app/layout.jsx`
+  - App Router 必須のルートレイアウト（これがないと Vercel build で失敗します）。
 - `app/page.jsx`
   - 画面本体。まずは単語一覧表示のみ。
 - `app/api/words/route.js`
@@ -72,7 +75,7 @@ npm run dev
 
 ## 3. LINE Login を後から追加しやすくするポイント
 
-この構成では、`users` テーブルに `line_user_id` を持たせています。
+この構成では、`users` テーブルに `line_user_id` を持たせています。  
 将来は以下を追加すれば連携できます。
 
 1. `/api/auth/line/login` を作る（LINE認可画面へリダイレクト）
@@ -94,7 +97,18 @@ npm run dev
 
 ---
 
-## 5. 注意点
+## 5. main へ安全にマージするためのメモ
+
+今回衝突しやすいファイルは次の2つです。
+- `README.md`
+- `package.json`
+
+このブランチでは、**Next.js + Supabase 構成を優先**した内容に統一しています。  
+`app/layout.jsx` を含む App Router 構成が前提です。
+
+---
+
+## 6. 注意点
 
 - `SUPABASE_SERVICE_ROLE_KEY` は絶対に公開しない
 - 今回は「最初に動かすこと」を優先しているため、認証やRLSは最小です
