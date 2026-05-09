@@ -45,62 +45,24 @@ Supabase ダッシュボードの Table Editor で `words` テーブルを開き
 npm run dev
 ```
 
-ブラウザで `http://localhost:3000?preview_token=your-secret-preview-token` を開くと、単語一覧が表示されます。
-
-`your-secret-preview-token` は `.env.local` の `ADMIN_PREVIEW_TOKEN` と同じ値にしてください。
-
+ブラウザで `http://localhost:3000` を開くと、未ログインの場合は `/login` に移動します。`ADMIN_PREVIEW_TOKEN` で仮ログインすると、単語一覧が表示されます。
 
 ---
 
-## 2. words テーブルの公開方針
-
-商品化前提のため、`words` テーブルは未ログインユーザーへ直接公開しません。
-
-- Supabase の anon key だけでは `words` を読ませない
-- `supabase/schema.sql` では `words` の RLS を有効化する
-- anon 向けの SELECT ポリシーは作らない
-- 現時点では、Next.js API Route が `SUPABASE_SERVICE_ROLE_KEY` を使ってサーバー側で読み込む
-- `supabase/schema.sql` で `service_role` にだけ `words` の SELECT 権限を付ける
-- ただし、LINE Login 未実装の間だけ、`ADMIN_PREVIEW_TOKEN` が一致した場合に `/api/words` を確認できる
-
-### 開発確認用URL
-
-```text
-http://localhost:3000?preview_token=your-secret-preview-token
-```
-
-Vercel でも Environment Variables に `ADMIN_PREVIEW_TOKEN` を設定し、次のように確認します。
-
-```text
-https://your-vercel-domain.vercel.app?preview_token=your-secret-preview-token
-```
-
-このトークンは管理者確認用なので、公開ページやSNSには載せないでください。
-LINE Login 実装後は、`authenticated` ユーザーだけが読める RLS ポリシーへ切り替える想定です。
-
-### `permission denied for table words` が出る場合
-
-このエラーは、ブラウザではなくサーバー側API Routeから読んでいても、Supabase側で `service_role` に `words` の SELECT 権限がない場合に起きます。
-
-Supabase SQL Editorで最新版の `supabase/schema.sql` を実行してください。特に次の2行が重要です。
-
-```sql
-grant usage on schema public to service_role;
-grant select on public.words to service_role;
-```
-
-それでも直らない場合は、Vercelの `SUPABASE_SERVICE_ROLE_KEY` に anon key ではなく service role key が入っているか確認してください。
-
----
-
-## 3. ファイル構成（重要なもの）
+## 2. ファイル構成（重要なもの）
 
 - `app/layout.jsx`
   - App Router 必須のルートレイアウト（これがないと Vercel build で失敗します）。
 - `app/page.jsx`
-  - 画面本体。まずは単語一覧表示のみ。
+  - 画面本体。仮ログイン済みのときだけ単語一覧を表示。
+- `app/login/page.jsx`
+  - 開発確認用の仮ログイン画面。
+- `app/api/auth/preview-login/route.js`
+  - `ADMIN_PREVIEW_TOKEN` をサーバー側で照合し、httpOnly cookie を発行するAPI。
+- `app/api/auth/preview-logout/route.js`
+  - 仮ログイン cookie を削除するAPI。
 - `app/api/words/route.js`
-  - 単語一覧を返すAPI。
+  - 仮ログイン済みの場合だけ単語一覧を返すAPI。
 - `app/api/users/route.js`
   - 将来LINE Login後のユーザー登録で使うAPI。
 - `app/api/history/route.js`
@@ -111,6 +73,10 @@ grant select on public.words to service_role;
   - 公開キーで使うSupabaseクライアント。
 - `lib/supabaseAdmin.js`
   - サーバー専用（service role）クライアント。
+- `lib/auth/previewSession.js`
+  - 開発用仮ログインの cookie 作成・検証ロジック。
+- `middleware.js`
+  - 未ログインのトップページアクセスを `/login` に移動させる入口制御。
 - `supabase/schema.sql`
   - テーブル作成SQL。
 - `supabase/words_seed.csv`
@@ -118,7 +84,7 @@ grant select on public.words to service_role;
 
 ---
 
-## 4. LINE Login を後から追加しやすくするポイント
+## 3. LINE Login を後から追加しやすくするポイント
 
 この構成では、`users` テーブルに `line_user_id` を持たせています。  
 将来は以下を追加すれば連携できます。
@@ -131,19 +97,18 @@ grant select on public.words to service_role;
 
 ---
 
-## 5. Vercel デプロイ手順
+## 4. Vercel デプロイ手順
 
 1. GitHubにこのリポジトリを push
 2. Vercel で Import Project
 3. Environment Variables に `.env.local` と同じ値を設定
 4. Deploy
 
-デプロイ後、`/?preview_token=your-secret-preview-token` で単語一覧が表示されることを確認してください。
-`/api/words` をトークンなしで直接開いた場合は、商品化前提のため 401 になります。
+デプロイ後、未ログインの `/api/words` が 401 を返り、`/login` で仮ログインしたあとに `/api/words` が 200 で返ることを確認してください。
 
 ---
 
-## 6. main へ安全にマージするためのメモ
+## 5. main へ安全にマージするためのメモ
 
 今回衝突しやすいファイルは次の2つです。
 - `README.md`
@@ -154,8 +119,57 @@ grant select on public.words to service_role;
 
 ---
 
-## 7. 注意点
+## 6. 注意点
 
 - `SUPABASE_SERVICE_ROLE_KEY` は絶対に公開しない
-- `words` は RLS を有効にし、anon 向け SELECT ポリシーは作りません
-- LINE Login 実装後に、`authenticated` ユーザー向けのRLSポリシーを追加してください
+- 開発用仮ログインは商品化前の確認用です。正式公開前に LINE Login へ置き換えてください
+- RLS は ON のままにしてください。service role key はサーバー側 API Route だけで使います
+- anon 公開ポリシーを作らない場合も、ブラウザから直接 Supabase を読まず API 経由で必要なデータだけ返してください
+
+---
+
+## 7. 開発用の仮ログイン
+
+Muse Note は商品化前提のため、正式な LINE Login を入れるまでは **一般公開ユーザーがトップページや単語APIを使えない状態** にしています。  
+現在は、開発確認用として `ADMIN_PREVIEW_TOKEN` を知っている人だけが `/login` から仮ログインできます。
+
+### 7-1. 追加で必要な環境変数
+
+`.env.local` と Vercel の Environment Variables に、次を追加してください。
+
+```bash
+ADMIN_PREVIEW_TOKEN=長くて推測されにくいランダム文字列
+```
+
+例として `muse-note-dev` のような短い文字列は避け、パスワードマネージャー等で生成した長い値を使ってください。
+
+### 7-2. 仮ログインの流れ
+
+1. 未ログインで `/` にアクセスする
+2. `middleware.js` が cookie を確認する
+3. cookie が無い、または署名が正しくない場合は `/login` へ移動する
+4. `/login` で `ADMIN_PREVIEW_TOKEN` を入力する
+5. `/api/auth/preview-login` がサーバー側で環境変数と入力値を比較する
+6. 一致した場合だけ、httpOnly cookie にログイン状態を保存する
+7. ログイン済み cookie がある場合だけ `/api/words` が Supabase から `words` を取得する
+
+### 7-3. セキュリティ上の考え方
+
+- `ADMIN_PREVIEW_TOKEN` は `NEXT_PUBLIC_` を付けません。ブラウザへ公開しないサーバー専用の値です。
+- `SUPABASE_SERVICE_ROLE_KEY` は `lib/supabaseAdmin.js` から API Route だけで使います。ブラウザ側では使いません。
+- cookie には `ADMIN_PREVIEW_TOKEN` そのものを保存しません。署名済みのログイン情報だけを保存します。
+- cookie は `httpOnly` にしているため、ブラウザの JavaScript から読み取れません。
+- RLS は OFF にしません。service role key は RLS を迂回できる強いキーなので、必ずサーバー側だけに閉じ込めます。
+- anon key 用の公開ポリシーを作らない方針でも、API Route 経由で必要なデータだけ返せます。
+
+### 7-4. 将来 LINE Login に置き換えるとき
+
+今回の仮ログイン処理は `lib/auth/previewSession.js` と `/api/auth/preview-login` に分離しています。  
+将来 LINE Login を正式実装するときは、以下のように差し替える想定です。
+
+- `/api/auth/line/login` で LINE の認可画面へ移動
+- `/api/auth/line/callback` で LINE のユーザー情報を確認
+- サーバー側で安全なセッション cookie を発行
+- `middleware.js` と `/api/words` の認証確認を LINE Login 用の関数へ切り替え
+
+管理者画面は作っていません。これはあくまで、開発確認用の一般ユーザー向け仮ログインです。

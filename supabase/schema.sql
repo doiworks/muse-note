@@ -13,8 +13,6 @@ create table if not exists public.users (
 );
 
 -- 単語マスターテーブル
--- words は商品データのため anon には公開しません。
--- LINE Login 実装後に authenticated ユーザー向けの SELECT ポリシーを追加します。
 create table if not exists public.words (
   id bigint primary key,
   school_level text,
@@ -36,17 +34,6 @@ create table if not exists public.words (
   antonym_jp text,
   note text
 );
-
--- RLSを有効にしますが、anon向けSELECTポリシーは作りません。
--- 現時点ではAPI Routeのservice_role経由だけが words を読める方針です。
-alter table public.words enable row level security;
-
--- service_role はサーバー側API Routeだけで使う管理者ロールです。
--- RLSを公開しなくても、service_roleにSELECT権限を付けることで
--- app/api/words/route.js から words を読めるようにします。
--- anon / authenticated へはここでGRANTしません。
-grant usage on schema public to service_role;
-grant select on public.words to service_role;
 
 -- 回答履歴テーブル
 create table if not exists public.history (
@@ -75,3 +62,26 @@ create index if not exists idx_history_user_id on public.history(user_id);
 create index if not exists idx_history_word_id on public.history(word_id);
 create index if not exists idx_stats_user_id on public.stats(user_id);
 create index if not exists idx_stats_word_id on public.stats(word_id);
+
+-- RLSはONのままにします。
+-- anon / authenticated に公開SELECTポリシーは作らず、ブラウザから直接 words を読ませません。
+alter table public.users enable row level security;
+alter table public.words enable row level security;
+alter table public.history enable row level security;
+alter table public.stats enable row level security;
+
+-- 念のため、公開ロールから直接テーブルを読める権限を外します。
+-- アプリは app/api/words/route.js から service_role で必要なデータだけ返します。
+revoke all on table public.users from anon, authenticated;
+revoke all on table public.words from anon, authenticated;
+revoke all on table public.history from anon, authenticated;
+revoke all on table public.stats from anon, authenticated;
+
+-- service_role はサーバー側APIだけで使う強い権限です。
+-- RLSをOFFにせず、サーバー側APIが words を読めるように最低限の権限を付与します。
+grant usage on schema public to service_role;
+grant select on table public.words to service_role;
+grant all on table public.users to service_role;
+grant all on table public.history to service_role;
+grant all on table public.stats to service_role;
+grant usage, select on all sequences in schema public to service_role;

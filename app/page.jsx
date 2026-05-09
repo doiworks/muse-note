@@ -1,8 +1,11 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 export default function HomePage() {
+  const router = useRouter();
+
   // 画面表示に使う状態（state）をわかりやすい名前で宣言します。
   const [wordList, setWordList] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -12,12 +15,7 @@ export default function HomePage() {
   useEffect(() => {
     async function loadWords() {
       try {
-        // URLに ?preview_token=xxxx がある場合だけ、管理者確認モードとしてAPIへ渡します。
-        // 例: http://localhost:3000?preview_token=your-secret-token
-        const searchParams = new URLSearchParams(window.location.search);
-        const previewToken = searchParams.get('preview_token');
-        const apiUrl = previewToken ? `/api/words?preview_token=${encodeURIComponent(previewToken)}` : '/api/words';
-        const response = await fetch(apiUrl);
+        const response = await fetch('/api/words');
         const data = await response.json();
 
         if (!response.ok) {
@@ -35,10 +33,21 @@ export default function HomePage() {
     loadWords();
   }, []);
 
+  async function handleLogout() {
+    await fetch('/api/auth/preview-logout', { method: 'POST' });
+    router.replace('/login');
+    router.refresh();
+  }
+
   return (
     <main style={{ maxWidth: 960, margin: '0 auto', padding: 24, fontFamily: 'sans-serif' }}>
-      <h1>Muse Note（英単語学習）</h1>
-      <p>まずはログインなしで動く最小構成です。あとでLINE Loginを追加しやすい構成にしています。</p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center' }}>
+        <h1>Muse Note（英単語学習）</h1>
+        <button type="button" onClick={handleLogout} style={{ padding: '8px 12px', cursor: 'pointer' }}>
+          ログアウト
+        </button>
+      </div>
+      <p>現在は開発確認用の仮ログイン中です。あとで LINE Login に置き換えやすい構成にしています。</p>
 
       {isLoading && <p>読み込み中です...</p>}
       {!isLoading && errorMessage && <p style={{ color: 'crimson' }}>{errorMessage}</p>}
