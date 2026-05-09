@@ -1,5 +1,15 @@
+// このAPI Routeは必ずサーバー側だけで動かします。
+// service role key は強い権限を持つため、ブラウザ側のファイルでは絶対に使いません。
+// app/api 配下の route.js は Next.js のサーバー機能なので、クライアントへキーは送られません。
+
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
+
+// Supabaseのservice role keyを使うため、Node.js Runtimeで実行します。
+export const runtime = 'nodejs';
+
+// preview_token はアクセスごとに確認したいので、静的キャッシュしないようにします。
+export const dynamic = 'force-dynamic';
 
 export async function GET(request) {
   // 商品化前提のため、wordsテーブルは未ログインユーザーへ公開しません。
@@ -32,7 +42,15 @@ export async function GET(request) {
     .limit(200);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    // 「permission denied for table words」が出る場合は、RLSポリシーではなく
+    // service_role ロールへのGRANT不足か、環境変数に anon key を入れている可能性があります。
+    return NextResponse.json(
+      {
+        error: '単語データの取得に失敗しました。サーバー側のSupabase権限設定を確認してください。',
+        detail: error.message
+      },
+      { status: 500 }
+    );
   }
 
   return NextResponse.json({ words: data });

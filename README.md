@@ -60,6 +60,7 @@ npm run dev
 - `supabase/schema.sql` では `words` の RLS を有効化する
 - anon 向けの SELECT ポリシーは作らない
 - 現時点では、Next.js API Route が `SUPABASE_SERVICE_ROLE_KEY` を使ってサーバー側で読み込む
+- `supabase/schema.sql` で `service_role` にだけ `words` の SELECT 権限を付ける
 - ただし、LINE Login 未実装の間だけ、`ADMIN_PREVIEW_TOKEN` が一致した場合に `/api/words` を確認できる
 
 ### 開発確認用URL
@@ -76,6 +77,19 @@ https://your-vercel-domain.vercel.app?preview_token=your-secret-preview-token
 
 このトークンは管理者確認用なので、公開ページやSNSには載せないでください。
 LINE Login 実装後は、`authenticated` ユーザーだけが読める RLS ポリシーへ切り替える想定です。
+
+### `permission denied for table words` が出る場合
+
+このエラーは、ブラウザではなくサーバー側API Routeから読んでいても、Supabase側で `service_role` に `words` の SELECT 権限がない場合に起きます。
+
+Supabase SQL Editorで最新版の `supabase/schema.sql` を実行してください。特に次の2行が重要です。
+
+```sql
+grant usage on schema public to service_role;
+grant select on public.words to service_role;
+```
+
+それでも直らない場合は、Vercelの `SUPABASE_SERVICE_ROLE_KEY` に anon key ではなく service role key が入っているか確認してください。
 
 ---
 

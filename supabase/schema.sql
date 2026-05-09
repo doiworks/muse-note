@@ -41,6 +41,13 @@ create table if not exists public.words (
 -- 現時点ではAPI Routeのservice_role経由だけが words を読める方針です。
 alter table public.words enable row level security;
 
+-- service_role はサーバー側API Routeだけで使う管理者ロールです。
+-- RLSを公開しなくても、service_roleにSELECT権限を付けることで
+-- app/api/words/route.js から words を読めるようにします。
+-- anon / authenticated へはここでGRANTしません。
+grant usage on schema public to service_role;
+grant select on public.words to service_role;
+
 -- 回答履歴テーブル
 create table if not exists public.history (
   id bigint generated always as identity primary key,
