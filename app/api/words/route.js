@@ -2,6 +2,28 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { PREVIEW_SESSION_COOKIE_NAME, verifyPreviewSessionCookieValue } from '../../../lib/auth/previewSession';
 
+const WORD_COLUMNS = [
+  'id',
+  'school_level',
+  'grade',
+  'term',
+  'exam_type',
+  'category1',
+  'category2',
+  'category3',
+  'importance',
+  'japanese',
+  'english',
+  'phonetic',
+  'example',
+  'pos_code',
+  'pos_full',
+  'pos_j',
+  'antonym',
+  'antonym_jp',
+  'note'
+].join(',');
+
 export async function GET(request) {
   // middleware だけに頼らず、API側でも cookie を確認します。
   // これにより、ログイン済みの開発確認ユーザーだけが words を取得できます。
@@ -12,10 +34,10 @@ export async function GET(request) {
     return NextResponse.json({ error: '仮ログインが必要です。' }, { status: 401 });
   }
 
-  // wordsテーブルから単語を取得します。
+  // wordsテーブルから、画面・学習機能で利用する列だけをAPIレスポンスとして取得します。
   const { data, error } = await supabaseAdmin
     .from('words')
-    .select('*')
+    .select(WORD_COLUMNS)
     .order('id', { ascending: true })
     .limit(200);
 
