@@ -1,7 +1,17 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
+import { PREVIEW_SESSION_COOKIE_NAME, verifyPreviewSessionCookieValue } from '../../../lib/auth/previewSession';
 
-export async function GET() {
+export async function GET(request) {
+  // middleware だけに頼らず、API側でも cookie を確認します。
+  // これにより、ログイン済みの開発確認ユーザーだけが words を取得できます。
+  const sessionCookie = request.cookies.get(PREVIEW_SESSION_COOKIE_NAME)?.value;
+  const isLoggedIn = await verifyPreviewSessionCookieValue(sessionCookie);
+
+  if (!isLoggedIn) {
+    return NextResponse.json({ error: '仮ログインが必要です。' }, { status: 401 });
+  }
+
   // wordsテーブルから単語を取得します。
   const { data, error } = await supabaseAdmin
     .from('words')
