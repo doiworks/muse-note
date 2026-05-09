@@ -173,16 +173,3 @@ ADMIN_PREVIEW_TOKEN=長くて推測されにくいランダム文字列
 - `middleware.js` と `/api/words` の認証確認を LINE Login 用の関数へ切り替え
 
 管理者画面は作っていません。これはあくまで、開発確認用の一般ユーザー向け仮ログインです。
-
-
-### 7-5. `permission denied for table words` が出るとき
-
-このエラーは、ブラウザ側の anon key ではなくサーバー側APIから読んでいても、Supabase 側で `service_role` に `words` を読む権限が不足していると発生することがあります。  
-対処として、`supabase/schema.sql` の末尾にある RLS / GRANT 設定を Supabase SQL Editor で実行してください。
-
-重要な考え方は次の通りです。
-
-- RLS は OFF にしません。
-- `anon` / `authenticated` に `words` の公開SELECTポリシーは作りません。
-- ブラウザは Supabase に直接アクセスせず、必ず `fetch('/api/words')` で Next.js API を呼びます。
-- `/api/words` は仮ログイン cookie を確認してから、サーバー側だけで `SUPABASE_SERVICE_ROLE_KEY` を使います。
