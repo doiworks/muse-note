@@ -104,7 +104,7 @@ npm run dev
 3. Environment Variables に `.env.local` と同じ値を設定
 4. Deploy
 
-デプロイ後、`/api/words` が 200 で返ることを確認してください。
+デプロイ後、未ログインの `/api/words` が 401 を返り、`/login` で仮ログインしたあとに `/api/words` が 200 で返ることを確認してください。
 
 ---
 

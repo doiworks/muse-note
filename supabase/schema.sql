@@ -62,3 +62,26 @@ create index if not exists idx_history_user_id on public.history(user_id);
 create index if not exists idx_history_word_id on public.history(word_id);
 create index if not exists idx_stats_user_id on public.stats(user_id);
 create index if not exists idx_stats_word_id on public.stats(word_id);
+
+-- RLSはONのままにします。
+-- anon / authenticated に公開SELECTポリシーは作らず、ブラウザから直接 words を読ませません。
+alter table public.users enable row level security;
+alter table public.words enable row level security;
+alter table public.history enable row level security;
+alter table public.stats enable row level security;
+
+-- 念のため、公開ロールから直接テーブルを読める権限を外します。
+-- アプリは app/api/words/route.js から service_role で必要なデータだけ返します。
+revoke all on table public.users from anon, authenticated;
+revoke all on table public.words from anon, authenticated;
+revoke all on table public.history from anon, authenticated;
+revoke all on table public.stats from anon, authenticated;
+
+-- service_role はサーバー側APIだけで使う強い権限です。
+-- RLSをOFFにせず、サーバー側APIが words を読めるように最低限の権限を付与します。
+grant usage on schema public to service_role;
+grant select on table public.words to service_role;
+grant all on table public.users to service_role;
+grant all on table public.history to service_role;
+grant all on table public.stats to service_role;
+grant usage, select on all sequences in schema public to service_role;
