@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabaseAdmin } from '../../../lib/supabaseAdmin';
+import { getSupabaseAdmin } from '../../../lib/supabaseAdmin';
 import { PREVIEW_SESSION_COOKIE_NAME, verifyPreviewSessionCookieValue } from '../../../lib/auth/previewSession';
 
 const WORD_COLUMNS = [
@@ -24,6 +24,12 @@ const WORD_COLUMNS = [
   'note'
 ].join(',');
 
+const WORD_FETCH_ERROR_MESSAGE = '単語データの取得に失敗しました。時間をおいて再度お試しください。';
+
+function createErrorResponse(message, status) {
+  return NextResponse.json({ error: message }, { status });
+}
+
 export async function GET(request) {
   // middleware だけに頼らず、API側でも cookie を確認します。
   // これにより、ログイン済みの開発確認ユーザーだけが words を取得できます。
@@ -31,26 +37,31 @@ export async function GET(request) {
   const isLoggedIn = await verifyPreviewSessionCookieValue(sessionCookie);
 
   if (!isLoggedIn) {
-    return NextResponse.json({ error: '仮ログインが必要です。' }, { status: 401 });
+    return createErrorResponse('仮ログインが必要です。', 401);
   }
 
-  // wordsテーブルから、画面・学習機能で利用する列だけをAPIレスポンスとして取得します。
-  const { data, error } = await supabaseAdmin
-    .from('words')
-    .select(WORD_COLUMNS)
-    .order('id', { ascending: true })
-    .limit(200);
+  try {
+    // service_role key はこのサーバー側 API Route の中だけで使用します。
+    // ブラウザは Supabase に直接接続せず、/api/words だけを呼び出します。
+    const supabaseAdmin = getSupabaseAdmin();
 
-  if (error) {
-    // "permission denied for table words" が出る場合は、anon key ではなく service_role key を設定し、
-    // supabase/schema.sql の service_role 向け GRANT を実行してください。RLSをOFFにする必要はありません。
-    console.error('Failed to fetch words with service role client:', error);
+    // wordsテーブルから、画面・学習機能で利用する列だけをAPIレスポンスとして取得します。
+    const { data, error } = await supabaseAdmin
+      .from('words')
+      .select(WORD_COLUMNS)
+      .order('id', { ascending: true })
+      .limit(200);
 
-    return NextResponse.json(
-      { error: '単語データの取得に失敗しました。サーバー側のSupabase権限設定を確認してください。' },
-      { status: 500 }
-    );
+    if (error) {
+      // 詳細なSupabaseエラーはサーバーログだけに残し、ブラウザには安全な文言だけ返します。
+      console.error('Failed to fetch words with service role client:', error);
+      return createErrorResponse(WORD_FETCH_ERROR_MESSAGE, 500);
+    }
+
+    return NextResponse.json({ words: data ?? [] });
+  } catch (error) {
+    // 環境変数不足などの設定エラーも、service role key や内部詳細をブラウザへ漏らしません。
+    console.error('Failed to initialize or use Supabase service role client:', error);
+    return createErrorResponse(WORD_FETCH_ERROR_MESSAGE, 500);
   }
-
-  return NextResponse.json({ words: data });
 }
