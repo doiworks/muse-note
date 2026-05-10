@@ -21,7 +21,7 @@ const WORD_COLUMNS = [
   'pos_j',
   'antonym',
   'antonym_jp',
-  'note'
+  'text'
 ].join(',');
 
 const WORD_FETCH_ERROR_MESSAGE = '単語データの取得に失敗しました。時間をおいて再度お試しください。';

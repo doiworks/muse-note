@@ -58,7 +58,9 @@ export default function HomePage() {
           <ul>
             {wordList.slice(0, 20).map((word) => (
               <li key={word.id}>
-                <strong>{word.english}</strong> - {word.japanese}
+                <strong>{word.english}</strong>
+                {word.phonetic ? ` ${word.phonetic}` : ''} - {word.japanese}
+                {word.example && <div style={{ color: '#555', fontSize: '0.9em' }}>{word.example}</div>}
               </li>
             ))}
           </ul>
