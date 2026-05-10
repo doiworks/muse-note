@@ -16,15 +16,15 @@ export default function HomePage() {
     async function loadWords() {
       try {
         const response = await fetch('/api/words');
-        const data = await response.json();
+        const data = await response.json().catch(() => ({}));
 
         if (!response.ok) {
-          throw new Error(data.error || '単語データの取得に失敗しました。');
+          throw new Error(data.error || '単語データの取得に失敗しました。時間をおいて再度お試しください。');
         }
 
         setWordList(data.words || []);
       } catch (error) {
-        setErrorMessage(error.message);
+        setErrorMessage(error.message || '単語データの取得に失敗しました。時間をおいて再度お試しください。');
       } finally {
         setIsLoading(false);
       }
@@ -58,7 +58,9 @@ export default function HomePage() {
           <ul>
             {wordList.slice(0, 20).map((word) => (
               <li key={word.id}>
-                <strong>{word.english}</strong> - {word.japanese}
+                <strong>{word.english}</strong>
+                {word.phonetic ? ` ${word.phonetic}` : ''} - {word.japanese}
+                {word.example && <div style={{ color: '#555', fontSize: '0.9em' }}>{word.example}</div>}
               </li>
             ))}
           </ul>
