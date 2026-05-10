@@ -45,7 +45,7 @@ export async function GET(request) {
     // ブラウザは Supabase に直接接続せず、/api/words だけを呼び出します。
     const supabaseAdmin = getSupabaseAdmin();
 
-    // 実際の words テーブルに存在する列だけをAPIレスポンスとして取得します。
+    // wordsテーブルから、画面・学習機能で利用する列だけをAPIレスポンスとして取得します。
     const { data, error } = await supabaseAdmin
       .from('words')
       .select(WORD_COLUMNS)
