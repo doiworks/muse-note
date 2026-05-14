@@ -51,7 +51,8 @@ const INITIAL_GAME = {
   now: null,
   errorMessage: '',
   isLoading: false,
-  showCircle: false
+  showCircle: false,
+  showPhonetic: false
 };
 
 function normalizeText(value) {
@@ -91,8 +92,8 @@ function DiffText({ answer, correct }) {
     return isMatch ? (
       <span key={`${userChar}-${index}`}>{userChar}</span>
     ) : (
-      <span className="miss" key={`${userChar}-${index}`}>
-        {userChar}
+      <span className="miss missChar" key={`${userChar}-${index}`}>
+        {userChar || '□'}
       </span>
     );
   });
@@ -106,6 +107,7 @@ export default function HomePage() {
   const intervalRef = useRef(null);
   const voicesRef = useRef([]);
   const gameRef = useRef(INITIAL_GAME);
+  const audioContextRef = useRef(null);
   const currentWord = game.quizWords[game.currentIndex] || null;
   const totalElapsed = game.now && game.totalStart ? game.now - game.totalStart : 0;
   const questionElapsed = game.now && game.questionStart ? game.now - game.questionStart : 0;
@@ -195,6 +197,38 @@ export default function HomePage() {
     }
   }
 
+
+  function playCorrectSound() {
+    if (typeof window === 'undefined') return;
+
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+
+      const context = audioContextRef.current || new AudioContext();
+      audioContextRef.current = context;
+      if (context.state === 'suspended') context.resume().catch(() => {});
+
+      const startAt = context.currentTime;
+      const gain = context.createGain();
+      gain.gain.setValueAtTime(0.0001, startAt);
+      gain.gain.exponentialRampToValueAtTime(0.16, startAt + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.28);
+      gain.connect(context.destination);
+
+      [523.25, 783.99].forEach((frequency, index) => {
+        const oscillator = context.createOscillator();
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(frequency, startAt + index * 0.08);
+        oscillator.connect(gain);
+        oscillator.start(startAt + index * 0.08);
+        oscillator.stop(startAt + 0.3);
+      });
+    } catch (error) {
+      console.warn('Correct sound failed:', error);
+    }
+  }
+
   function warmupTTS() {
     if (typeof window === 'undefined' || !window.speechSynthesis) return;
 
@@ -245,7 +279,8 @@ export default function HomePage() {
       questionStart: now,
       now,
       errorMessage: '',
-      showCircle: false
+      showCircle: false,
+      showPhonetic: false
     };
     gameRef.current = askingGame;
     setGame(askingGame);
@@ -256,7 +291,14 @@ export default function HomePage() {
     const autoJudgeAt = secondHintAt + timing.judgePlus4;
 
     addTimer(() => speak(word?.english), firstHintAt * 1000);
-    addTimer(() => speak(word?.english), secondHintAt * 1000);
+    addTimer(() => {
+      const current = gameRef.current;
+      if (current.state !== 'asking') return;
+      const nextGame = { ...current, showPhonetic: true };
+      gameRef.current = nextGame;
+      setGame(nextGame);
+      speak(word?.english);
+    }, secondHintAt * 1000);
     addTimer(() => {
       judgeCurrentAnswer(gameRef.current.answer, true);
     }, autoJudgeAt * 1000);
@@ -353,6 +395,7 @@ export default function HomePage() {
     if (shouldSpeak) addTimer(() => speak(word.english), 200);
 
     if (isCorrect) {
+      playCorrectSound();
       addTimer(() => setGame((current) => ({ ...current, showCircle: false })), 400);
     }
 
@@ -496,7 +539,7 @@ export default function HomePage() {
               >
                 {currentWord?.japanese || '読み込み中...'}
               </button>
-              {currentWord?.phonetic && <div className="hintIpa">{currentWord.phonetic}</div>}
+              {game.showPhonetic && currentWord?.phonetic && <div className="hintIpa">{currentWord.phonetic}</div>}
               <input
                 ref={answerRef}
                 className="answerInput"
@@ -831,7 +874,20 @@ export default function HomePage() {
         .feedback.wrong,
         .miss {
           color: #e53935;
-          font-weight: 700;
+          font-weight: 800;
+        }
+
+        .missChar {
+          display: inline-block;
+          min-width: 0.85em;
+          margin: 0 1px;
+          padding: 0 0.12em 0.08em;
+          border-radius: 5px;
+          background: #ffe3e3;
+          box-shadow: inset 0 -3px 0 #ff8a8a;
+          text-decoration: underline;
+          text-decoration-thickness: 2px;
+          text-underline-offset: 3px;
         }
 
         .crossMark {
@@ -853,14 +909,14 @@ export default function HomePage() {
           margin: auto;
           width: 180px;
           height: 180px;
-          border-radius: 50%;
-          border: 6px solid #66bb6a;
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 4rem;
+          font-size: 8rem;
+          line-height: 1;
           color: #66bb6a;
-          background: rgba(255, 255, 255, 0.9);
+          text-shadow: 0 6px 14px rgba(102, 187, 106, 0.18);
+          background: rgba(255, 255, 255, 0.78);
           pointer-events: none;
           animation: pop 0.4s ease-out;
           z-index: 2;
