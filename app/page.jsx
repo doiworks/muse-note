@@ -79,21 +79,20 @@ function formatElapsed(ms, withPaddedMinutes = true) {
 function DiffText({ answer, correct }) {
   const answerChars = [...(answer || '')];
   const correctChars = [...(correct || '')];
-  const length = Math.max(answerChars.length, correctChars.length);
 
   if (!answerChars.length) {
-    return <span className="miss">（未入力）</span>;
+    return <span className="emptyAnswer" aria-label="未入力" />;
   }
 
-  return Array.from({ length }, (_, index) => {
-    const userChar = answerChars[index] || '';
+  return answerChars.map((userChar, index) => {
     const correctChar = correctChars[index] || '';
     const isMatch = userChar.toLowerCase() === correctChar.toLowerCase();
+
     return isMatch ? (
       <span key={`${userChar}-${index}`}>{userChar}</span>
     ) : (
       <span className="miss missChar" key={`${userChar}-${index}`}>
-        {userChar || '□'}
+        {userChar}
       </span>
     );
   });
@@ -873,21 +872,29 @@ export default function HomePage() {
 
         .feedback.wrong,
         .miss {
-          color: #e53935;
-          font-weight: 800;
+          color: #c62828;
+          font-weight: 900;
         }
 
         .missChar {
           display: inline-block;
           min-width: 0.85em;
           margin: 0 1px;
-          padding: 0 0.12em 0.08em;
+          padding: 0 0.14em 0.08em;
+          border: 1px solid #ef9a9a;
           border-radius: 5px;
-          background: #ffe3e3;
-          box-shadow: inset 0 -3px 0 #ff8a8a;
+          background: #ffebee;
+          box-shadow: inset 0 -3px 0 #ef5350;
           text-decoration: underline;
+          text-decoration-color: #b71c1c;
           text-decoration-thickness: 2px;
           text-underline-offset: 3px;
+        }
+
+        .reviewScreen .miss,
+        .reviewScreen .missChar {
+          color: #c62828;
+          font-weight: 900;
         }
 
         .crossMark {
