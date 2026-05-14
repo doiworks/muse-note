@@ -51,8 +51,7 @@ const INITIAL_GAME = {
   now: null,
   errorMessage: '',
   isLoading: false,
-  showCircle: false,
-  showPhonetic: false
+  showCircle: false
 };
 
 function normalizeText(value) {
@@ -89,14 +88,11 @@ function DiffText({ answer, correct }) {
     const userChar = answerChars[index] || '';
     const correctChar = correctChars[index] || '';
     const isMatch = userChar.toLowerCase() === correctChar.toLowerCase();
-
-    if (isMatch) {
-      return <span key={`${userChar}-${index}`}>{userChar}</span>;
-    }
-
-    return (
-      <span className="miss" key={`${userChar || 'missing'}-${index}`}>
-        {userChar || '＿'}
+    return isMatch ? (
+      <span key={`${userChar}-${index}`}>{userChar}</span>
+    ) : (
+      <span className="miss" key={`${userChar}-${index}`}>
+        {userChar}
       </span>
     );
   });
@@ -110,7 +106,6 @@ export default function HomePage() {
   const intervalRef = useRef(null);
   const voicesRef = useRef([]);
   const gameRef = useRef(INITIAL_GAME);
-  const audioContextRef = useRef(null);
   const currentWord = game.quizWords[game.currentIndex] || null;
   const totalElapsed = game.now && game.totalStart ? game.now - game.totalStart : 0;
   const questionElapsed = game.now && game.questionStart ? game.now - game.questionStart : 0;
@@ -215,41 +210,6 @@ export default function HomePage() {
     }
   }
 
-  function playCorrectSound() {
-    if (typeof window === 'undefined') return;
-
-    try {
-      const AudioContext = window.AudioContext || window.webkitAudioContext;
-      if (!AudioContext) return;
-
-      const audioContext = audioContextRef.current || new AudioContext();
-      audioContextRef.current = audioContext;
-
-      if (audioContext.state === 'suspended') {
-        audioContext.resume().catch(() => {});
-      }
-
-      const now = audioContext.currentTime;
-      const gain = audioContext.createGain();
-      gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(0.08, now + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
-      gain.connect(audioContext.destination);
-
-      [880, 1174.66].forEach((frequency, index) => {
-        const oscillator = audioContext.createOscillator();
-        const startAt = now + index * 0.08;
-        oscillator.type = 'sine';
-        oscillator.frequency.setValueAtTime(frequency, startAt);
-        oscillator.connect(gain);
-        oscillator.start(startAt);
-        oscillator.stop(startAt + 0.12);
-      });
-    } catch (error) {
-      console.warn('Correct sound failed:', error);
-    }
-  }
-
   async function handleLogout() {
     clearAllTimers();
     await fetch('/api/auth/preview-logout', { method: 'POST' });
@@ -285,8 +245,7 @@ export default function HomePage() {
       questionStart: now,
       now,
       errorMessage: '',
-      showCircle: false,
-      showPhonetic: false
+      showCircle: false
     };
     gameRef.current = askingGame;
     setGame(askingGame);
@@ -297,14 +256,7 @@ export default function HomePage() {
     const autoJudgeAt = secondHintAt + timing.judgePlus4;
 
     addTimer(() => speak(word?.english), firstHintAt * 1000);
-    addTimer(() => {
-      const current = gameRef.current;
-      if (current.state !== 'asking') return;
-      const nextGame = { ...current, showPhonetic: true };
-      gameRef.current = nextGame;
-      setGame(nextGame);
-      speak(word?.english);
-    }, secondHintAt * 1000);
+    addTimer(() => speak(word?.english), secondHintAt * 1000);
     addTimer(() => {
       judgeCurrentAnswer(gameRef.current.answer, true);
     }, autoJudgeAt * 1000);
@@ -398,7 +350,6 @@ export default function HomePage() {
     gameRef.current = nextGame;
     setGame(nextGame);
 
-    if (isCorrect) playCorrectSound();
     if (shouldSpeak) addTimer(() => speak(word.english), 200);
 
     if (isCorrect) {
@@ -415,7 +366,7 @@ export default function HomePage() {
     addTimer(() => {
       const current = gameRef.current;
       if (current.state !== 'judged') return;
-      startQuestion({ ...current, currentIndex: current.currentIndex + 1, showCircle: false, showPhonetic: false });
+      startQuestion({ ...current, currentIndex: current.currentIndex + 1, showCircle: false });
     }, (isCorrect ? timing.nextFast : timing.nextSlow) * 1000);
   }
 
@@ -444,7 +395,7 @@ export default function HomePage() {
 
     if (current.state === 'judged') {
       clearAllTimers();
-      startQuestion({ ...current, currentIndex: current.currentIndex + 1, showCircle: false, showPhonetic: false });
+      startQuestion({ ...current, currentIndex: current.currentIndex + 1, showCircle: false });
     }
   }
 
@@ -545,7 +496,7 @@ export default function HomePage() {
               >
                 {currentWord?.japanese || '読み込み中...'}
               </button>
-              <div className="hintIpa">{game.showPhonetic && currentWord?.phonetic ? currentWord.phonetic : ''}</div>
+              {currentWord?.phonetic && <div className="hintIpa">{currentWord.phonetic}</div>}
               <input
                 ref={answerRef}
                 className="answerInput"
@@ -902,13 +853,14 @@ export default function HomePage() {
           margin: auto;
           width: 180px;
           height: 180px;
+          border-radius: 50%;
+          border: 6px solid #66bb6a;
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 7rem;
-          line-height: 1;
+          font-size: 4rem;
           color: #66bb6a;
-          background: transparent;
+          background: rgba(255, 255, 255, 0.9);
           pointer-events: none;
           animation: pop 0.4s ease-out;
           z-index: 2;
