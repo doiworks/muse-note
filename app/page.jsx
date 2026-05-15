@@ -874,23 +874,27 @@ export default function HomePage() {
           font-weight: 900;
         }
 
-        .matchChar,
-        .missChar {
+        :global(.matchChar),
+        :global(.missChar) {
           display: inline-block;
           min-width: 0.62em;
         }
 
-        .matchChar {
+        :global(.matchChar) {
           color: inherit;
         }
 
-        .missChar {
+        :global(.missChar) {
           color: #e53935 !important;
           font-weight: 900;
           background: transparent;
         }
 
-        .reviewScreen .missChar {
+        :global(.wordInput .matchChar) {
+          color: inherit;
+        }
+
+        :global(.wordInput .missChar) {
           color: #e53935 !important;
           font-weight: 900;
           background: transparent;
