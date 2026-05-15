@@ -350,6 +350,28 @@ export default function HomePage() {
     }
   }
 
+  async function saveAnswerHistory({ word, answer, correct }) {
+    if (!word?.id) return;
+
+    try {
+      const response = await fetch('/api/history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          word_id: word.id,
+          answer,
+          correct
+        })
+      });
+
+      if (!response.ok) {
+        console.warn('Answer history was not saved.');
+      }
+    } catch {
+      console.warn('Answer history was not saved.');
+    }
+  }
+
   function createJudgedGame(prev, value) {
     const word = prev.quizWords[prev.currentIndex];
     if (!word || prev.state !== 'asking') return null;
@@ -391,6 +413,8 @@ export default function HomePage() {
     setGame(nextGame);
 
     if (shouldSpeak) addTimer(() => speak(word.english), 200);
+
+    void saveAnswerHistory({ word, answer: nextGame.answer, correct: isCorrect });
 
     if (isCorrect) {
       playCorrectSound();
