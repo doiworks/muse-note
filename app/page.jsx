@@ -596,16 +596,20 @@ export default function HomePage() {
               {game.reviewData.map((item, index) => (
                 <article className="reviewItem" key={`${item.id}-${index}`}>
                   <div className="reviewQuestion">{index + 1}. {item.japanese}</div>
-                  <div>
-                    正 <span className="wordCorrect">{item.english}</span>
-                    <button className="soundBtn" type="button" onClick={() => speak(item.english)} aria-label={`${item.english}を発音`} title="発音を聞く">
-                      ♪
-                    </button>
-                    {item.phonetic && <span className="ipa">{item.phonetic}</span>}
+                  <div className="wordRow">
+                    <span className="wordLabel">正</span>
+                    <span className="wordValue">
+                      <span className="wordCorrect">{item.english}</span>
+                      <button className="soundBtn" type="button" onClick={() => speak(item.english)} aria-label={`${item.english}を発音`} title="発音を聞く">
+                        <span className="soundIcon" aria-hidden="true" />
+                      </button>
+                      {item.phonetic && <span className="ipa">{item.phonetic}</span>}
+                    </span>
                   </div>
                   {!item.correct && (
-                    <div>
-                      答 <span className="wordInput"><DiffText answer={item.answer} correct={item.english} /></span>
+                    <div className="wordRow">
+                      <span className="wordLabel">答</span>
+                      <span className="wordValue wordInput"><DiffText answer={item.answer} correct={item.english} /></span>
                     </div>
                   )}
                 </article>
@@ -844,16 +848,19 @@ export default function HomePage() {
         }
 
         .wordCorrect {
-          font-size: 1.25rem;
+          font-size: 1.2rem;
           color: #2e7d32;
           font-weight: 700;
+          letter-spacing: normal;
+          word-spacing: normal;
         }
 
         .wordInput {
-          font-size: 1.25rem;
+          font-size: 1.2rem;
           color: #333;
           font-weight: 600;
-          letter-spacing: 0.03em;
+          letter-spacing: normal;
+          word-spacing: normal;
           border-bottom: none;
           text-decoration: none;
         }
@@ -876,8 +883,9 @@ export default function HomePage() {
 
         :global(.matchChar),
         :global(.missChar) {
-          display: inline-block;
-          min-width: 0.62em;
+          display: inline;
+          min-width: 0;
+          letter-spacing: normal;
         }
 
         :global(.matchChar) {
@@ -885,8 +893,8 @@ export default function HomePage() {
         }
 
         :global(.missChar) {
-          color: #e53935 !important;
-          font-weight: 900;
+          color: #d94b4b !important;
+          font-weight: 800;
           background: transparent;
         }
 
@@ -895,8 +903,8 @@ export default function HomePage() {
         }
 
         :global(.wordInput .missChar) {
-          color: #e53935 !important;
-          font-weight: 900;
+          color: #d94b4b !important;
+          font-weight: 800;
           background: transparent;
         }
 
@@ -929,31 +937,39 @@ export default function HomePage() {
           text-align: left;
           max-height: 80vh;
           overflow-y: auto;
+          padding: 0 2px 2px;
+          color: #526b90;
+          line-height: 1.55;
         }
 
         .reviewScreen h1 {
           text-align: center;
-          font-size: 1.45rem;
-          margin: 0 0 1rem;
+          font-size: 1.32rem;
+          line-height: 1.35;
+          margin: 0 0 0.65rem;
+          color: #426083;
+          letter-spacing: 0.01em;
         }
 
         .scoreLine {
           text-align: center;
-          margin: 0 0 1rem;
+          margin: 0 0 0.85rem;
+          color: #6a7d98;
+          font-size: 0.96rem;
         }
 
         .resultStats {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
           gap: 8px;
-          margin: 1rem 0;
+          margin: 0.8rem 0 0.9rem;
         }
 
         .resultStats div {
-          background: #f6f9ff;
-          border: 1px solid #e6ebf7;
+          background: #f8fbff;
+          border: 1px solid #e8eef9;
           border-radius: 14px;
-          padding: 0.75rem 0.4rem;
+          padding: 0.65rem 0.4rem;
           text-align: center;
         }
 
@@ -963,45 +979,115 @@ export default function HomePage() {
         }
 
         .resultStats strong {
-          font-size: 1.35rem;
+          font-size: 1.28rem;
           color: #2e7d32;
         }
 
+        .resultStats span {
+          color: #7a8aa2;
+          font-size: 0.82rem;
+          margin-top: 0.05rem;
+        }
+
         .reviewList {
-          border-top: 1px solid #e6ebf7;
+          border-top: 1px solid #edf2fa;
         }
 
         .reviewItem {
-          border-bottom: 1px solid #e6ebf7;
-          padding: 10px 0;
+          border-bottom: 1px solid #edf2fa;
+          padding: 11px 0 12px;
         }
 
         .reviewQuestion {
           font-weight: 700;
-          margin-bottom: 0.3rem;
+          margin-bottom: 0.32rem;
+          color: #465f82;
+          font-size: 1.02rem;
+          letter-spacing: 0.01em;
+        }
+
+        .wordRow {
+          display: flex;
+          align-items: baseline;
+          gap: 0.55rem;
+          margin-top: 0.12rem;
+          line-height: 1.45;
+        }
+
+        .wordLabel {
+          flex: 0 0 1.45rem;
+          color: #7a8aa2;
+          font-size: 0.96rem;
+          font-weight: 700;
+          text-align: right;
+          letter-spacing: normal;
+        }
+
+        .wordValue {
+          display: inline-flex;
+          align-items: baseline;
+          flex-wrap: wrap;
+          gap: 0.28rem;
+          min-width: 0;
+          color: #334155;
+          letter-spacing: normal;
+          word-spacing: normal;
         }
 
         .soundBtn {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          width: 1.55rem;
-          height: 1.55rem;
-          margin-left: 0.35rem;
-          border: 1px solid #c9d6ed;
+          width: 1.28rem;
+          height: 1.28rem;
+          margin-left: 0.1rem;
+          border: 1px solid #d5dfef;
           border-radius: 999px;
-          background: #ffffff;
-          color: #4f6b94;
+          background: transparent;
+          color: #6e83a3;
           cursor: pointer;
-          font-size: 0.85rem;
           line-height: 1;
           user-select: none;
-          vertical-align: middle;
+          vertical-align: -0.12em;
+          transition: background 0.2s, border-color 0.2s, color 0.2s;
         }
 
         .soundBtn:hover {
-          background: #f6f9ff;
-          border-color: #9fbbe2;
+          background: #f8fbff;
+          border-color: #b9c9e3;
+          color: #4f6b94;
+        }
+
+        .soundIcon {
+          position: relative;
+          display: inline-block;
+          width: 0.7rem;
+          height: 0.7rem;
+        }
+
+        .soundIcon::before {
+          content: "";
+          position: absolute;
+          left: 0.02rem;
+          top: 0.2rem;
+          width: 0.22rem;
+          height: 0.3rem;
+          border-radius: 0.04rem;
+          background: currentColor;
+        }
+
+        .soundIcon::after {
+          content: "";
+          position: absolute;
+          left: 0.22rem;
+          top: 0.1rem;
+          width: 0.34rem;
+          height: 0.5rem;
+          border: solid currentColor;
+          border-width: 0.1rem 0.1rem 0 0;
+          border-radius: 0 999px 0 0;
+          transform: rotate(45deg);
+          transform-origin: center;
         }
 
         .retryArea {
