@@ -86,12 +86,11 @@ function DiffText({ answer, correct }) {
 
   return answerChars.map((userChar, index) => {
     const correctChar = correctChars[index] || '';
-    const isMatch = userChar.toLowerCase() === correctChar.toLowerCase();
+    const isMatch = correctChar && userChar.toLowerCase() === correctChar.toLowerCase();
+    const className = isMatch ? 'matchChar' : 'missChar';
 
-    return isMatch ? (
-      <span key={`${userChar}-${index}`}>{userChar}</span>
-    ) : (
-      <span className="miss missChar" key={`${userChar}-${index}`}>
+    return (
+      <span className={className} key={`${userChar}-${index}`}>
         {userChar}
       </span>
     );
@@ -570,12 +569,11 @@ export default function HomePage() {
                     <div className="compare">
                       <div className="feedback wrong">不正解です</div>
                       <div className="wordLine">
-                        正解 <span className="wordCorrect">{game.result.word.english}</span>
+                        正 <span className="wordCorrect">{game.result.word.english}</span>
                         {game.result.word.phonetic && <span className="ipa">{game.result.word.phonetic}</span>}
                       </div>
                       <div className="wordLine">
-                        入力 <span className="wordInput"><DiffText answer={game.result.answer} correct={game.result.word.english} /></span>
-                        <span className="crossMark">✖</span>
+                        答 <span className="wordInput"><DiffText answer={game.result.answer} correct={game.result.word.english} /></span>
                       </div>
                     </div>
                   )}
@@ -600,8 +598,8 @@ export default function HomePage() {
                   <div className="reviewQuestion">{index + 1}. {item.japanese}</div>
                   <div>
                     正 <span className="wordCorrect">{item.english}</span>
-                    <button className="soundBtn" type="button" onClick={() => speak(item.english)} aria-label={`${item.english}を発音`}>
-                      🔊
+                    <button className="soundBtn" type="button" onClick={() => speak(item.english)} aria-label={`${item.english}を発音`} title="発音を聞く">
+                      ♪
                     </button>
                     {item.phonetic && <span className="ipa">{item.phonetic}</span>}
                   </div>
@@ -854,9 +852,8 @@ export default function HomePage() {
         .wordInput {
           font-size: 1.25rem;
           color: #333;
-          border-bottom: 2px solid #e67b7b;
-          padding-bottom: 2px;
           font-weight: 600;
+          letter-spacing: 0.03em;
         }
 
         .feedback {
@@ -870,38 +867,20 @@ export default function HomePage() {
           color: #2e7d32;
         }
 
-        .feedback.wrong,
-        .miss {
+        .feedback.wrong {
           color: #c62828;
           font-weight: 900;
+        }
+
+        .matchChar,
+        .missChar {
+          display: inline-block;
+          min-width: 0.62em;
         }
 
         .missChar {
-          display: inline-block;
-          min-width: 0.85em;
-          margin: 0 1px;
-          padding: 0 0.14em 0.08em;
-          border: 1px solid #ef9a9a;
-          border-radius: 5px;
-          background: #ffebee;
-          box-shadow: inset 0 -3px 0 #ef5350;
-          text-decoration: underline;
-          text-decoration-color: #b71c1c;
-          text-decoration-thickness: 2px;
-          text-underline-offset: 3px;
-        }
-
-        .reviewScreen .miss,
-        .reviewScreen .missChar {
           color: #c62828;
           font-weight: 900;
-        }
-
-        .crossMark {
-          font-size: 1.2rem;
-          color: #e67b7b;
-          font-weight: 800;
-          margin-left: 0.35em;
         }
 
         .ipa {
@@ -986,12 +965,26 @@ export default function HomePage() {
         }
 
         .soundBtn {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 1.55rem;
+          height: 1.55rem;
+          margin-left: 0.35rem;
+          border: 1px solid #c9d6ed;
+          border-radius: 999px;
+          background: #ffffff;
+          color: #4f6b94;
           cursor: pointer;
+          font-size: 0.85rem;
+          line-height: 1;
           user-select: none;
-          border: none;
-          background: transparent;
-          font-size: 1rem;
-          margin-left: 0.25rem;
+          vertical-align: middle;
+        }
+
+        .soundBtn:hover {
+          background: #f6f9ff;
+          border-color: #9fbbe2;
         }
 
         .retryArea {
