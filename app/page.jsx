@@ -84,10 +84,21 @@ function DiffText({ answer, correct }) {
     return <span className="emptyAnswer" aria-label="未入力" />;
   }
 
+  function countCharThrough(chars, targetChar, lastIndex) {
+    const normalizedTarget = targetChar.toLowerCase();
+    return chars
+      .slice(0, lastIndex + 1)
+      .filter((char) => char.toLowerCase() === normalizedTarget).length;
+  }
+
   return answerChars.map((userChar, index) => {
-    const correctChar = correctChars[index] || '';
-    const isMatch = correctChar && userChar.toLowerCase() === correctChar.toLowerCase();
-    const className = isMatch ? 'matchChar' : 'missChar';
+    const correctChar = correctChars[index];
+    const isSamePositionMatch =
+      typeof correctChar === 'string' && userChar.toLowerCase() === correctChar.toLowerCase();
+    const hasSameOccurrenceCount =
+      isSamePositionMatch &&
+      countCharThrough(answerChars, userChar, index) === countCharThrough(correctChars, correctChar, index);
+    const className = isSamePositionMatch && hasSameOccurrenceCount ? 'matchChar' : 'miss missChar';
 
     return (
       <span className={className} key={`${userChar}-${index}`}>
@@ -879,8 +890,17 @@ export default function HomePage() {
         }
 
         .missChar {
+          margin: 0 1px;
+          padding: 0 0.12em 0.08em;
+          border-radius: 5px;
+          background: #ffebee;
+          box-shadow: inset 0 -3px 0 #ef5350;
           color: #c62828;
           font-weight: 900;
+          text-decoration: underline;
+          text-decoration-color: #b71c1c;
+          text-decoration-thickness: 2px;
+          text-underline-offset: 3px;
         }
 
         .ipa {
