@@ -1,29 +1,77 @@
 import { NextResponse } from 'next/server';
-import { supabaseAdmin } from '../../../lib/supabaseAdmin';
+import { getSupabaseAdmin } from '../../../lib/supabaseAdmin';
+import { PREVIEW_SESSION_COOKIE_NAME, verifyPreviewSessionCookieValue } from '../../../lib/auth/previewSession';
 
-export async function POST(request) {
-  // 学習の回答履歴を保存するAPIです。
-  const body = await request.json();
-  const { userId, wordId, answerText, isCorrect } = body;
+const DEV_PREVIEW_USER_ID = '00000000-0000-4000-8000-000000000001';
+const DEV_PREVIEW_LINE_USER_ID = 'dev_preview_user';
+const HISTORY_SAVE_ERROR_MESSAGE = '回答履歴の保存に失敗しました。時間をおいて再度お試しください。';
 
-  if (!userId || !wordId) {
-    return NextResponse.json({ error: 'userId と wordId は必須です。' }, { status: 400 });
-  }
+function createErrorResponse(message, status) {
+  return NextResponse.json({ error: message }, { status });
+}
 
-  const { data, error } = await supabaseAdmin
-    .from('history')
-    .insert({
-      user_id: userId,
-      word_id: wordId,
-      answer_text: answerText || null,
-      is_correct: Boolean(isCorrect)
-    })
-    .select()
-    .single();
+function parseWordId(value) {
+  const wordId = Number(value);
+  return Number.isInteger(wordId) && wordId > 0 ? wordId : null;
+}
+
+async function ensurePreviewUser(supabaseAdmin) {
+  const { error } = await supabaseAdmin.from('users').upsert(
+    {
+      id: DEV_PREVIEW_USER_ID,
+      line_user_id: DEV_PREVIEW_LINE_USER_ID,
+      user_name: '開発確認ユーザー',
+      updated_at: new Date().toISOString()
+    },
+    { onConflict: 'line_user_id' }
+  );
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    throw error;
+  }
+}
+
+export async function POST(request) {
+  // middleware だけに頼らず、履歴保存API側でも仮ログイン cookie を確認します。
+  const sessionCookie = request.cookies.get(PREVIEW_SESSION_COOKIE_NAME)?.value;
+  const isLoggedIn = await verifyPreviewSessionCookieValue(sessionCookie);
+
+  if (!isLoggedIn) {
+    return createErrorResponse('仮ログインが必要です。', 401);
   }
 
-  return NextResponse.json({ history: data });
+  const body = await request.json().catch(() => null);
+  const wordId = parseWordId(body?.word_id ?? body?.wordId);
+  const answer = typeof body?.answer === 'string' ? body.answer : '';
+  const correct = body?.correct;
+
+  if (!wordId || typeof correct !== 'boolean') {
+    return createErrorResponse('word_id と correct は必須です。', 400);
+  }
+
+  try {
+    // service_role key はこのサーバー側 API Route の中だけで使用します。
+    const supabaseAdmin = getSupabaseAdmin();
+    await ensurePreviewUser(supabaseAdmin);
+
+    const { error } = await supabaseAdmin.from('history').insert({
+      user_id: DEV_PREVIEW_USER_ID,
+      word_id: wordId,
+      answer_text: answer,
+      is_correct: correct,
+      answered_at: new Date().toISOString()
+    });
+
+    if (error) {
+      // 詳細なSupabaseエラーはサーバーログだけに残し、ブラウザには安全な文言だけ返します。
+      console.error('Failed to save answer history with service role client:', error);
+      return createErrorResponse(HISTORY_SAVE_ERROR_MESSAGE, 500);
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    // 環境変数不足などの設定エラーも、service role key や内部詳細をブラウザへ漏らしません。
+    console.error('Failed to initialize or use Supabase service role client for history:', error);
+    return createErrorResponse(HISTORY_SAVE_ERROR_MESSAGE, 500);
+  }
 }
