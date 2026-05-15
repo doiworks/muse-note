@@ -885,8 +885,15 @@ export default function HomePage() {
         }
 
         .missChar {
-          color: #c62828;
+          color: #e53935 !important;
           font-weight: 900;
+          background: transparent;
+        }
+
+        .reviewScreen .missChar {
+          color: #e53935 !important;
+          font-weight: 900;
+          background: transparent;
         }
 
         .ipa {
