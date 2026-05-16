@@ -16,12 +16,17 @@ function parseWordId(value) {
 }
 
 async function ensurePreviewUser(supabaseAdmin) {
-  const { error } = await supabaseAdmin.from('users').upsert(
+  const now = new Date().toISOString();
+
+  const { error } = await supabaseAdmin.from('app_users').upsert(
     {
       id: DEV_PREVIEW_USER_ID,
       line_user_id: DEV_PREVIEW_LINE_USER_ID,
-      user_name: '開発確認ユーザー',
-      updated_at: new Date().toISOString()
+      display_name: '開発確認ユーザー',
+      role: 'user',
+      status: 'active',
+      last_login_at: now,
+      updated_at: now
     },
     { onConflict: 'line_user_id' }
   );
