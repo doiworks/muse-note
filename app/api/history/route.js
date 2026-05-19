@@ -60,10 +60,10 @@ export async function POST(request) {
     await ensurePreviewUser(supabaseAdmin);
 
     const { error } = await supabaseAdmin.from('history').insert({
-      user_id: DEV_PREVIEW_USER_ID,
+      app_user_id: DEV_PREVIEW_USER_ID,
       word_id: wordId,
-      answer_text: answer,
-      is_correct: correct,
+      answer: answer,
+      correct: correct,
       answered_at: new Date().toISOString()
     });
 
