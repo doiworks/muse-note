@@ -36,6 +36,85 @@ async function ensurePreviewUser(supabaseAdmin) {
   }
 }
 
+async function getStatsColumns(supabaseAdmin) {
+  const { data, error } = await supabaseAdmin
+    .from('information_schema.columns')
+    .select('column_name')
+    .eq('table_schema', 'public')
+    .eq('table_name', 'stats');
+
+  if (error) {
+    throw error;
+  }
+
+  return new Set((data ?? []).map((row) => row.column_name));
+}
+
+function firstExistingColumn(columns, candidates) {
+  return candidates.find((name) => columns.has(name)) ?? null;
+}
+
+async function updateStatsAfterHistorySave({ supabaseAdmin, appUserId, wordId, correct, answeredAt }) {
+  const columns = await getStatsColumns(supabaseAdmin);
+
+  const appUserIdColumn = firstExistingColumn(columns, ['app_user_id', 'user_id']);
+  const correctCountColumn = firstExistingColumn(columns, ['correct_count']);
+  const wrongCountColumn = firstExistingColumn(columns, ['wrong_count']);
+  const attemptCountColumn = firstExistingColumn(columns, ['attempt_count']);
+  const accuracyColumn = firstExistingColumn(columns, ['accuracy', 'accuracy_rate']);
+  const lastAnsweredAtColumn = firstExistingColumn(columns, ['last_answered_at', 'updated_at']);
+
+  if (!appUserIdColumn || !correctCountColumn || !wrongCountColumn || !attemptCountColumn || !accuracyColumn || !lastAnsweredAtColumn) {
+    throw new Error(
+      `stats table columns are missing required fields: ${JSON.stringify({
+        appUserIdColumn,
+        correctCountColumn,
+        wrongCountColumn,
+        attemptCountColumn,
+        accuracyColumn,
+        lastAnsweredAtColumn
+      })}`
+    );
+  }
+
+  const { data: existingStats, error: existingStatsError } = await supabaseAdmin
+    .from('stats')
+    .select(`id, ${correctCountColumn}, ${wrongCountColumn}, ${attemptCountColumn}`)
+    .eq(appUserIdColumn, appUserId)
+    .eq('word_id', wordId)
+    .maybeSingle();
+
+  if (existingStatsError) {
+    throw existingStatsError;
+  }
+
+  const oldCorrectCount = Number(existingStats?.[correctCountColumn] ?? 0);
+  const oldWrongCount = Number(existingStats?.[wrongCountColumn] ?? 0);
+  const oldAttemptCount = Number(existingStats?.[attemptCountColumn] ?? oldCorrectCount + oldWrongCount);
+
+  const newCorrectCount = correct ? oldCorrectCount + 1 : oldCorrectCount;
+  const newWrongCount = correct ? oldWrongCount : oldWrongCount + 1;
+  const newAttemptCount = oldAttemptCount + 1;
+  const newAccuracy = newAttemptCount > 0 ? Number((newCorrectCount / newAttemptCount).toFixed(4)) : 0;
+
+  const nextStats = {
+    [appUserIdColumn]: appUserId,
+    word_id: wordId,
+    [correctCountColumn]: newCorrectCount,
+    [wrongCountColumn]: newWrongCount,
+    [attemptCountColumn]: newAttemptCount,
+    [accuracyColumn]: newAccuracy,
+    [lastAnsweredAtColumn]: answeredAt
+  };
+
+  const onConflictColumns = `${appUserIdColumn},word_id`;
+  const { error: upsertError } = await supabaseAdmin.from('stats').upsert(nextStats, { onConflict: onConflictColumns });
+
+  if (upsertError) {
+    throw upsertError;
+  }
+}
+
 export async function POST(request) {
   // middleware だけに頼らず、履歴保存API側でも仮ログイン cookie を確認します。
   const sessionCookie = request.cookies.get(PREVIEW_SESSION_COOKIE_NAME)?.value;
@@ -59,18 +138,37 @@ export async function POST(request) {
     const supabaseAdmin = getSupabaseAdmin();
     await ensurePreviewUser(supabaseAdmin);
 
+    const answeredAt = new Date().toISOString();
     const { error } = await supabaseAdmin.from('history').insert({
       app_user_id: DEV_PREVIEW_USER_ID,
       word_id: wordId,
       answer: answer,
       correct: correct,
-      answered_at: new Date().toISOString()
+      answered_at: answeredAt
     });
 
     if (error) {
       // 詳細なSupabaseエラーはサーバーログだけに残し、ブラウザには安全な文言だけ返します。
       console.error('Failed to save answer history with service role client:', error);
       return createErrorResponse(HISTORY_SAVE_ERROR_MESSAGE, 500);
+    }
+
+    try {
+      await updateStatsAfterHistorySave({
+        supabaseAdmin,
+        appUserId: DEV_PREVIEW_USER_ID,
+        wordId,
+        correct,
+        answeredAt
+      });
+    } catch (statsError) {
+      console.error('History save succeeded but stats update failed:', {
+        appUserId: DEV_PREVIEW_USER_ID,
+        wordId,
+        correct,
+        answeredAt,
+        statsError
+      });
     }
 
     return NextResponse.json({ ok: true });
