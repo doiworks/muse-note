@@ -36,7 +36,11 @@ const INITIAL_GAME = {
   userName: '',
   countInput: '',
   mode: 'normal',
+  questionMode: 'normal',
   words: [],
+  selectableWords: [],
+  selectedWordIds: [],
+  wordSearch: '',
   quizWords: [],
   currentIndex: 0,
   answeredCount: 0,
@@ -110,6 +114,11 @@ export default function HomePage() {
   const totalElapsed = game.now && game.totalStart ? game.now - game.totalStart : 0;
   const questionElapsed = game.now && game.questionStart ? game.now - game.questionStart : 0;
   const accuracy = game.answeredCount ? Math.round((game.correctCount / game.answeredCount) * 100) : 0;
+  const filteredWords = game.selectableWords.filter((word) => {
+    const keyword = normalizeText(game.wordSearch);
+    if (!keyword) return true;
+    return normalizeText(word.japanese).includes(keyword) || normalizeText(word.english).includes(keyword);
+  });
 
 
   useEffect(() => {
@@ -302,7 +311,27 @@ export default function HomePage() {
     }, autoJudgeAt * 1000);
   }
 
-  async function handleStart(mode) {
+  async function fetchWords() {
+    const response = await fetch('/api/words');
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.error || '単語データの取得に失敗しました。時間をおいて再度お試しください。');
+    }
+    return data.words || [];
+  }
+
+  async function handleQuestionModeChange(questionMode) {
+    setGame((prev) => ({ ...prev, questionMode, errorMessage: '' }));
+    if (questionMode !== 'select' || game.selectableWords.length) return;
+    try {
+      const words = await fetchWords();
+      setGame((prev) => ({ ...prev, selectableWords: words }));
+    } catch (error) {
+      setGame((prev) => ({ ...prev, errorMessage: error.message }));
+    }
+  }
+
+  async function handleStart(mode, selectedWords = null) {
     const userName = game.userName.trim();
     if (!userName) {
       setGame((prev) => ({ ...prev, errorMessage: 'ユーザー名を入力してください。' }));
@@ -317,14 +346,9 @@ export default function HomePage() {
     setGame((prev) => ({ ...prev, mode, isLoading: true, errorMessage: '' }));
 
     try {
-      const response = await fetch('/api/words');
-      const data = await response.json().catch(() => ({}));
+      const words = selectedWords || (await fetchWords());
 
-      if (!response.ok) {
-        throw new Error(data.error || '単語データの取得に失敗しました。時間をおいて再度お試しください。');
-      }
-
-      const { quizWords, targetCount } = prepareWords(data.words || [], safeRequestedCount);
+      const { quizWords, targetCount } = prepareWords(words, safeRequestedCount);
       if (!targetCount) {
         setGame((prev) => ({ ...prev, isLoading: false, errorMessage: '出題できる単語がありません。' }));
         return;
@@ -335,7 +359,11 @@ export default function HomePage() {
         userName,
         countInput: game.countInput,
         mode,
-        words: data.words || [],
+        questionMode: game.questionMode,
+        words,
+        selectableWords: game.selectableWords,
+        selectedWordIds: game.selectedWordIds,
+        wordSearch: game.wordSearch,
         quizWords,
         targetCount,
         totalStart: Date.now(),
@@ -484,12 +512,36 @@ export default function HomePage() {
       userName: game.userName,
       countInput: String(safeRequestedCount || ''),
       mode: game.mode,
+      questionMode: game.questionMode,
       words: game.words,
+      selectableWords: game.selectableWords,
+      selectedWordIds: game.selectedWordIds,
+      wordSearch: game.wordSearch,
       quizWords,
       targetCount,
       totalStart: Date.now(),
       now: Date.now()
     });
+  }
+
+  function toggleSelectedWord(wordId) {
+    setGame((prev) => {
+      const exists = prev.selectedWordIds.includes(wordId);
+      return {
+        ...prev,
+        selectedWordIds: exists ? prev.selectedWordIds.filter((id) => id !== wordId) : [...prev.selectedWordIds, wordId],
+        errorMessage: ''
+      };
+    });
+  }
+
+  function handleStartSelected(mode) {
+    if (!game.selectedWordIds.length) {
+      setGame((prev) => ({ ...prev, errorMessage: '単語を1つ以上選択してください。' }));
+      return;
+    }
+    const selectedWords = game.selectableWords.filter((word) => game.selectedWordIds.includes(word.id));
+    void handleStart(mode, selectedWords);
   }
 
   return (
@@ -523,16 +575,50 @@ export default function HomePage() {
                 placeholder="出題数（空=全件）"
               />
             </div>
+            <div className="questionModeArea">
+              <p className="sectionLabel">出題方法</p>
+              <div className="questionModes">
+                <button type="button" className={`questionModeBtn ${game.questionMode === 'normal' ? 'active' : ''}`} onClick={() => void handleQuestionModeChange('normal')}>
+                  通常
+                </button>
+                <button type="button" className={`questionModeBtn ${game.questionMode === 'select' ? 'active' : ''}`} onClick={() => void handleQuestionModeChange('select')}>
+                  選択
+                </button>
+              </div>
+            </div>
+            {game.questionMode === 'select' && (
+              <div className="selectArea">
+                <input
+                  className="searchInput"
+                  placeholder="日本語 / 英語で検索"
+                  value={game.wordSearch}
+                  onChange={(event) => setGame((prev) => ({ ...prev, wordSearch: event.target.value }))}
+                />
+                <p className="selectedCount">選択数: {game.selectedWordIds.length}件</p>
+                <div className="wordList">
+                  {filteredWords.map((word) => {
+                    const selected = game.selectedWordIds.includes(word.id);
+                    return (
+                      <button type="button" key={word.id} className={`wordItem ${selected ? 'selected' : ''}`} onClick={() => toggleSelectedWord(word.id)}>
+                        <span>{word.japanese}</span>
+                        <span>{word.english}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            <p className="sectionLabel">出題スピード</p>
             <div className="modeButtons" aria-label="スピードモード選択">
               {Object.entries(MODE_TIMING).map(([mode, setting]) => (
                 <button
                   className={`modeBtn ${game.mode === mode ? 'active' : ''}`}
                   disabled={game.isLoading}
                   key={mode}
-                  onClick={() => handleStart(mode)}
+                  onClick={() => (game.questionMode === 'select' ? handleStartSelected(mode) : handleStart(mode))}
                   type="button"
                 >
-                  {game.isLoading && game.mode === mode ? '読み込み中...' : setting.label}
+                  {game.isLoading && game.mode === mode ? '読み込み中...' : game.questionMode === 'select' ? `${setting.label}で選択した単語で開始` : setting.label}
                 </button>
               ))}
             </div>
@@ -748,6 +834,66 @@ export default function HomePage() {
           margin-top: 1rem;
           display: flex;
           gap: 10px;
+        }
+        .sectionLabel {
+          margin: 1rem 0 0.3rem;
+          font-weight: 700;
+          color: #5a7498;
+          text-align: left;
+        }
+        .questionModes {
+          display: flex;
+          gap: 8px;
+        }
+        .questionModeBtn {
+          flex: 1;
+          border: 1px solid #c7d8f0;
+          border-radius: 10px;
+          background: #f8fbff;
+          color: #4f6b94;
+          padding: 0.6em;
+        }
+        .questionModeBtn.active {
+          background: #dbe9fb;
+          border-color: #a8c9f0;
+        }
+        .selectArea {
+          margin-top: 0.8rem;
+          text-align: left;
+        }
+        .searchInput {
+          width: 100%;
+          padding: 0.7em;
+          border: 1px solid #d0dbf1;
+          border-radius: 10px;
+        }
+        .selectedCount {
+          margin: 0.4rem 0;
+          font-size: 0.9rem;
+        }
+        .wordList {
+          max-height: 220px;
+          overflow: auto;
+          border: 1px solid #e2eaf7;
+          border-radius: 10px;
+          padding: 6px;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+        .wordItem {
+          border: 1px solid #d5e1f3;
+          border-radius: 8px;
+          background: #fff;
+          display: flex;
+          justify-content: space-between;
+          width: 100%;
+          padding: 0.55em 0.6em;
+          color: #486287;
+        }
+        .wordItem.selected {
+          background: #dff0ff;
+          border-color: #7fb1e8;
         }
 
         .modeBtn,
