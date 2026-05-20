@@ -66,8 +66,8 @@ export async function GET(request) {
     if (wordIds.length) {
       const { data: statsRows, error: statsError } = await supabaseAdmin
         .from('stats')
-        .select('word_id,accuracy_rate,attempt_count,correct_count,wrong_count,updated_at')
-        .eq('user_id', PREVIEW_USER_ID)
+        .select('word_id,accuracy,attempt_count,success_count,mistake_count,last_correct,last_wrong,updated_at')
+        .eq('app_user_id', PREVIEW_USER_ID)
         .in('word_id', wordIds);
 
       if (statsError) {
@@ -79,12 +79,13 @@ export async function GET(request) {
         (statsRows ?? []).map((row) => [
           row.word_id,
           {
-            accuracy: row.accuracy_rate,
+            accuracy: row.accuracy,
             attempt_count: row.attempt_count,
-            success_count: row.correct_count,
-            mistake_count: row.wrong_count,
-            last_correct: row.updated_at,
-            last_wrong: row.updated_at
+            success_count: row.success_count,
+            mistake_count: row.mistake_count,
+            last_correct: row.last_correct,
+            last_wrong: row.last_wrong,
+            updated_at: row.updated_at
           }
         ])
       );
