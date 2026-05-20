@@ -36,82 +36,58 @@ async function ensurePreviewUser(supabaseAdmin) {
   }
 }
 
-async function getStatsColumns(supabaseAdmin) {
-  const { data, error } = await supabaseAdmin
-    .from('information_schema.columns')
-    .select('column_name')
-    .eq('table_schema', 'public')
-    .eq('table_name', 'stats');
-
-  if (error) {
-    throw error;
-  }
-
-  return new Set((data ?? []).map((row) => row.column_name));
-}
-
-function firstExistingColumn(columns, candidates) {
-  return candidates.find((name) => columns.has(name)) ?? null;
-}
-
 async function updateStatsAfterHistorySave({ supabaseAdmin, appUserId, wordId, correct, answeredAt }) {
-  const columns = await getStatsColumns(supabaseAdmin);
-
-  const appUserIdColumn = firstExistingColumn(columns, ['app_user_id', 'user_id']);
-  const correctCountColumn = firstExistingColumn(columns, ['correct_count']);
-  const wrongCountColumn = firstExistingColumn(columns, ['wrong_count']);
-  const attemptCountColumn = firstExistingColumn(columns, ['attempt_count']);
-  const accuracyColumn = firstExistingColumn(columns, ['accuracy', 'accuracy_rate']);
-  const lastAnsweredAtColumn = firstExistingColumn(columns, ['last_answered_at', 'updated_at']);
-
-  if (!appUserIdColumn || !correctCountColumn || !wrongCountColumn || !attemptCountColumn || !accuracyColumn || !lastAnsweredAtColumn) {
-    throw new Error(
-      `stats table columns are missing required fields: ${JSON.stringify({
-        appUserIdColumn,
-        correctCountColumn,
-        wrongCountColumn,
-        attemptCountColumn,
-        accuracyColumn,
-        lastAnsweredAtColumn
-      })}`
-    );
-  }
-
   const { data: existingStats, error: existingStatsError } = await supabaseAdmin
     .from('stats')
-    .select(`id, ${correctCountColumn}, ${wrongCountColumn}, ${attemptCountColumn}`)
-    .eq(appUserIdColumn, appUserId)
+    .select('app_user_id, word_id, last_correct, last_wrong, success_count, mistake_count, accuracy, attempt_count, priority, updated_at')
+    .eq('app_user_id', appUserId)
     .eq('word_id', wordId)
-    .maybeSingle();
+    .order('updated_at', { ascending: false })
+    .limit(1);
 
   if (existingStatsError) {
     throw existingStatsError;
   }
 
-  const oldCorrectCount = Number(existingStats?.[correctCountColumn] ?? 0);
-  const oldWrongCount = Number(existingStats?.[wrongCountColumn] ?? 0);
-  const oldAttemptCount = Number(existingStats?.[attemptCountColumn] ?? oldCorrectCount + oldWrongCount);
+  const currentStats = existingStats?.[0] ?? null;
+  const oldSuccessCount = Number(currentStats?.success_count ?? 0);
+  const oldMistakeCount = Number(currentStats?.mistake_count ?? 0);
+  const oldAttemptCount = Number(currentStats?.attempt_count ?? oldSuccessCount + oldMistakeCount);
 
-  const newCorrectCount = correct ? oldCorrectCount + 1 : oldCorrectCount;
-  const newWrongCount = correct ? oldWrongCount : oldWrongCount + 1;
+  const newSuccessCount = correct ? oldSuccessCount + 1 : oldSuccessCount;
+  const newMistakeCount = correct ? oldMistakeCount : oldMistakeCount + 1;
   const newAttemptCount = oldAttemptCount + 1;
-  const newAccuracy = newAttemptCount > 0 ? Number((newCorrectCount / newAttemptCount).toFixed(4)) : 0;
+  const newAccuracy = newAttemptCount > 0 ? Number(((newSuccessCount / newAttemptCount) * 100).toFixed(2)) : 0;
+  const nextPriority = Number.isFinite(Number(currentStats?.priority)) ? Number(currentStats.priority) : 0;
 
   const nextStats = {
-    [appUserIdColumn]: appUserId,
+    app_user_id: appUserId,
     word_id: wordId,
-    [correctCountColumn]: newCorrectCount,
-    [wrongCountColumn]: newWrongCount,
-    [attemptCountColumn]: newAttemptCount,
-    [accuracyColumn]: newAccuracy,
-    [lastAnsweredAtColumn]: answeredAt
+    success_count: newSuccessCount,
+    mistake_count: newMistakeCount,
+    attempt_count: newAttemptCount,
+    accuracy: newAccuracy,
+    priority: nextPriority,
+    updated_at: answeredAt,
+    ...(correct ? { last_correct: answeredAt } : { last_wrong: answeredAt })
   };
 
-  const onConflictColumns = `${appUserIdColumn},word_id`;
-  const { error: upsertError } = await supabaseAdmin.from('stats').upsert(nextStats, { onConflict: onConflictColumns });
+  if (currentStats) {
+    const { error: updateError } = await supabaseAdmin
+      .from('stats')
+      .update(nextStats)
+      .eq('app_user_id', appUserId)
+      .eq('word_id', wordId);
 
-  if (upsertError) {
-    throw upsertError;
+    if (updateError) {
+      throw updateError;
+    }
+    return;
+  }
+
+  const { error: insertError } = await supabaseAdmin.from('stats').insert(nextStats);
+  if (insertError) {
+    throw insertError;
   }
 }
 
