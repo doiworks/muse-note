@@ -25,6 +25,7 @@ const WORD_COLUMNS = [
 ].join(',');
 
 const WORD_FETCH_ERROR_MESSAGE = '単語データの取得に失敗しました。時間をおいて再度お試しください。';
+const PREVIEW_USER_ID = '00000000-0000-4000-8000-000000000001';
 
 function createErrorResponse(message, status) {
   return NextResponse.json({ error: message }, { status });
@@ -58,7 +59,43 @@ export async function GET(request) {
       return createErrorResponse(WORD_FETCH_ERROR_MESSAGE, 500);
     }
 
-    return NextResponse.json({ words: data ?? [] });
+    const wordRows = data ?? [];
+    const wordIds = wordRows.map((word) => word.id).filter(Boolean);
+
+    let statsMap = {};
+    if (wordIds.length) {
+      const { data: statsRows, error: statsError } = await supabaseAdmin
+        .from('stats')
+        .select('word_id,accuracy_rate,attempt_count,correct_count,wrong_count,updated_at')
+        .eq('user_id', PREVIEW_USER_ID)
+        .in('word_id', wordIds);
+
+      if (statsError) {
+        console.error('Failed to fetch stats with service role client:', statsError);
+        return createErrorResponse(WORD_FETCH_ERROR_MESSAGE, 500);
+      }
+
+      statsMap = Object.fromEntries(
+        (statsRows ?? []).map((row) => [
+          row.word_id,
+          {
+            accuracy: row.accuracy_rate,
+            attempt_count: row.attempt_count,
+            success_count: row.correct_count,
+            mistake_count: row.wrong_count,
+            last_correct: row.updated_at,
+            last_wrong: row.updated_at
+          }
+        ])
+      );
+    }
+
+    const wordsWithStats = wordRows.map((word) => ({
+      ...word,
+      stats: statsMap[word.id] ?? null
+    }));
+
+    return NextResponse.json({ words: wordsWithStats });
   } catch (error) {
     // 環境変数不足などの設定エラーも、service role key や内部詳細をブラウザへ漏らしません。
     console.error('Failed to initialize or use Supabase service role client:', error);

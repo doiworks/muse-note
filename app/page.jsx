@@ -41,6 +41,17 @@ const INITIAL_GAME = {
   selectableWords: [],
   selectedWordIds: [],
   wordSearch: '',
+  filters: {
+    school_level: '',
+    grade: '',
+    term: '',
+    exam_type: '',
+    category1: '',
+    category2: '',
+    category3: '',
+    importantOnly: false,
+    selectedOnly: false
+  },
   quizWords: [],
   currentIndex: 0,
   answeredCount: 0,
@@ -61,6 +72,12 @@ const INITIAL_GAME = {
 
 function normalizeText(value) {
   return value ? value.normalize('NFKC').toLowerCase().trim() : '';
+}
+function hasValue(value) {
+  return value !== null && value !== undefined && String(value).trim() !== '';
+}
+function isImportantWord(word) {
+  return Number(word.importance) === 1;
 }
 
 function shuffleLocal(items) {
@@ -114,10 +131,30 @@ export default function HomePage() {
   const totalElapsed = game.now && game.totalStart ? game.now - game.totalStart : 0;
   const questionElapsed = game.now && game.questionStart ? game.now - game.questionStart : 0;
   const accuracy = game.answeredCount ? Math.round((game.correctCount / game.answeredCount) * 100) : 0;
+  const filterOptions = ['school_level', 'grade', 'term', 'exam_type', 'category1', 'category2', 'category3'].reduce((acc, key) => {
+    acc[key] = [...new Set(game.selectableWords.map((word) => word[key]).filter(hasValue).map(String))].sort((a, b) => a.localeCompare(b, 'ja'));
+    return acc;
+  }, {});
   const filteredWords = game.selectableWords.filter((word) => {
     const keyword = normalizeText(game.wordSearch);
-    if (!keyword) return true;
-    return normalizeText(word.japanese).includes(keyword) || normalizeText(word.english).includes(keyword);
+    const matchesKeyword =
+      !keyword ||
+      ['english', 'japanese', 'phonetic', 'example', 'pos_j', 'category1', 'category2', 'category3', 'exam_type'].some((field) =>
+        normalizeText(word[field]).includes(keyword)
+      );
+    if (!matchesKeyword) return false;
+    const { filters } = game;
+    const matchesFilters =
+      (!filters.school_level || String(word.school_level) === filters.school_level) &&
+      (!filters.grade || String(word.grade) === filters.grade) &&
+      (!filters.term || String(word.term) === filters.term) &&
+      (!filters.exam_type || String(word.exam_type) === filters.exam_type) &&
+      (!filters.category1 || String(word.category1) === filters.category1) &&
+      (!filters.category2 || String(word.category2) === filters.category2) &&
+      (!filters.category3 || String(word.category3) === filters.category3) &&
+      (!filters.importantOnly || isImportantWord(word)) &&
+      (!filters.selectedOnly || game.selectedWordIds.includes(word.id));
+    return matchesFilters;
   });
 
 
@@ -364,6 +401,7 @@ export default function HomePage() {
         selectableWords: game.selectableWords,
         selectedWordIds: game.selectedWordIds,
         wordSearch: game.wordSearch,
+        filters: game.filters,
         quizWords,
         targetCount,
         totalStart: Date.now(),
@@ -517,6 +555,7 @@ export default function HomePage() {
       selectableWords: game.selectableWords,
       selectedWordIds: game.selectedWordIds,
       wordSearch: game.wordSearch,
+      filters: game.filters,
       quizWords,
       targetCount,
       totalStart: Date.now(),
@@ -542,6 +581,26 @@ export default function HomePage() {
     }
     const selectedWords = game.selectableWords.filter((word) => game.selectedWordIds.includes(word.id));
     void handleStart(mode, selectedWords);
+  }
+
+  function setFilterValue(key, value) {
+    setGame((prev) => ({ ...prev, filters: { ...prev.filters, [key]: value } }));
+  }
+
+  function selectVisible(shouldSelect) {
+    const visibleIds = filteredWords.map((word) => word.id);
+    setGame((prev) => {
+      const current = new Set(prev.selectedWordIds);
+      visibleIds.forEach((id) => (shouldSelect ? current.add(id) : current.delete(id)));
+      return { ...prev, selectedWordIds: [...current] };
+    });
+  }
+
+  function selectAll(shouldSelect) {
+    setGame((prev) => ({
+      ...prev,
+      selectedWordIds: shouldSelect ? prev.selectableWords.map((word) => word.id) : []
+    }));
   }
 
   return (
@@ -588,20 +647,46 @@ export default function HomePage() {
             </div>
             {game.questionMode === 'select' && (
               <div className="selectArea">
-                <input
-                  className="searchInput"
-                  placeholder="日本語 / 英語で検索"
-                  value={game.wordSearch}
-                  onChange={(event) => setGame((prev) => ({ ...prev, wordSearch: event.target.value }))}
-                />
-                <p className="selectedCount">選択数: {game.selectedWordIds.length}件</p>
+                <input className="searchInput" placeholder="検索: english / japanese / phonetic / example / 品詞 / カテゴリ" value={game.wordSearch} onChange={(event) => setGame((prev) => ({ ...prev, wordSearch: event.target.value }))} />
+                <div className="filterGrid">
+                  {['school_level','grade','term','exam_type','category1','category2','category3'].map((key) => (
+                    <select key={key} className="filterSelect" value={game.filters[key]} onChange={(event) => setFilterValue(key, event.target.value)}>
+                      <option value="">{key}</option>
+                      {(filterOptions[key] || []).map((value) => <option key={value} value={value}>{value}</option>)}
+                    </select>
+                  ))}
+                </div>
+                <div className="toggleRow">
+                  <label><input type="checkbox" checked={game.filters.importantOnly} onChange={(event) => setFilterValue('importantOnly', event.target.checked)} /> 重要のみ</label>
+                  <label><input type="checkbox" checked={game.filters.selectedOnly} onChange={(event) => setFilterValue('selectedOnly', event.target.checked)} /> 選択済みだけ表示</label>
+                </div>
+                <p className="selectedCount">選択数: {game.selectedWordIds.length}件 / 表示中: {filteredWords.length}件</p>
+                <div className="bulkRow">
+                  <button type="button" onClick={() => selectVisible(true)}>表示中をすべて選択</button>
+                  <button type="button" onClick={() => selectVisible(false)}>表示中をすべて解除</button>
+                  <button type="button" onClick={() => selectAll(true)}>すべて選択</button>
+                  <button type="button" onClick={() => selectAll(false)}>すべて解除</button>
+                </div>
                 <div className="wordList">
                   {filteredWords.map((word) => {
                     const selected = game.selectedWordIds.includes(word.id);
+                    const isImportant = isImportantWord(word);
+                    const stats = word.stats;
                     return (
                       <button type="button" key={word.id} className={`wordItem ${selected ? 'selected' : ''}`} onClick={() => toggleSelectedWord(word.id)}>
-                        <span>{word.japanese}</span>
-                        <span>{word.english}</span>
+                        <div className="wordMain">
+                          <div><strong>{word.english}</strong> / {word.japanese} {word.phonetic ? <span className="mini">{word.phonetic}</span> : null}</div>
+                          <div className="badgeRow">
+                            {word.grade ? <span className="miniBadge">G{word.grade}</span> : null}
+                            {word.term ? <span className="miniBadge">T{word.term}</span> : null}
+                            {word.category1 ? <span className="miniBadge">{word.category1}</span> : null}
+                            {word.category2 ? <span className="miniBadge">{word.category2}</span> : null}
+                            {word.category3 ? <span className="miniBadge">{word.category3}</span> : null}
+                            {isImportant ? <span className="importantBadge">重要</span> : null}
+                          </div>
+                          <div className="statsLine">{stats ? `正答率 ${Math.round(Number(stats.accuracy || 0))}% / 回答 ${stats.attempt_count} / 正 ${stats.success_count} / 誤 ${stats.mistake_count}` : '未出題'}</div>
+                        </div>
+                        <span className="speakerBtn" onClick={(event) => { event.stopPropagation(); speak(word.english); }} role="button" aria-label={`${word.english}を発音`} tabIndex={0}>🔊</span>
                       </button>
                     );
                   })}
@@ -871,6 +956,32 @@ export default function HomePage() {
           margin: 0.4rem 0;
           font-size: 0.9rem;
         }
+        .filterGrid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 6px;
+          margin-top: 8px;
+        }
+        .filterSelect {
+          border: 1px solid #d0dbf1;
+          border-radius: 8px;
+          padding: 0.45em;
+          font-size: 0.85rem;
+        }
+        .toggleRow,
+        .bulkRow {
+          margin-top: 8px;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+        }
+        .bulkRow button {
+          border: 1px solid #c7d8f0;
+          border-radius: 8px;
+          background: #f8fbff;
+          padding: 0.4em 0.6em;
+          font-size: 0.8rem;
+        }
         .wordList {
           max-height: 220px;
           overflow: auto;
@@ -887,14 +998,24 @@ export default function HomePage() {
           background: #fff;
           display: flex;
           justify-content: space-between;
+          align-items: center;
           width: 100%;
-          padding: 0.55em 0.6em;
+          padding: 0.7em;
           color: #486287;
+          text-align: left;
         }
         .wordItem.selected {
-          background: #dff0ff;
-          border-color: #7fb1e8;
+          background: #cbe7ff;
+          border-color: #4a97de;
+          box-shadow: 0 0 0 2px #a9d3fb inset;
         }
+        .wordMain { flex: 1; min-width: 0; }
+        .badgeRow { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+        .miniBadge { font-size: 0.7rem; border-radius: 999px; background: #eef4ff; padding: 2px 6px; }
+        .importantBadge { font-size: 0.7rem; border-radius: 999px; background: #ffdde0; color: #b1001a; padding: 2px 7px; font-weight: 700; }
+        .mini { font-size: 0.8rem; color: #6a7f9f; }
+        .statsLine { font-size: 0.75rem; margin-top: 4px; color: #4f6b94; }
+        .speakerBtn { font-size: 1.1rem; padding: 8px; margin-left: 6px; }
 
         .modeBtn,
         .answerBtn,
