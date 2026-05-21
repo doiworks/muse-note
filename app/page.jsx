@@ -30,6 +30,13 @@ const MODE_TIMING = {
   }
 };
 
+const QUESTION_MODE_OPTIONS = [
+  { key: 'normal', label: '通常', description: 'ランダムに出題' },
+  { key: 'balanced', label: '均等出題', description: '未学習・回答が少ない単語を優先' },
+  { key: 'review', label: '復習', description: '苦手な単語を優先' },
+  { key: 'select', label: '選択', description: '単語を選んで出題' }
+];
+
 const INITIAL_GAME = {
   screen: 'intro',
   state: 'idle',
@@ -273,6 +280,37 @@ export default function HomePage() {
     }
   }
 
+  function playWrongSound() {
+    if (typeof window === 'undefined') return;
+
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+
+      const context = audioContextRef.current || new AudioContext();
+      audioContextRef.current = context;
+      if (context.state === 'suspended') context.resume().catch(() => {});
+
+      const startAt = context.currentTime;
+      const gain = context.createGain();
+      gain.gain.setValueAtTime(0.0001, startAt);
+      gain.gain.exponentialRampToValueAtTime(0.14, startAt + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.32);
+      gain.connect(context.destination);
+
+      [392.0, 329.63].forEach((frequency, index) => {
+        const oscillator = context.createOscillator();
+        oscillator.type = 'triangle';
+        oscillator.frequency.setValueAtTime(frequency, startAt + index * 0.1);
+        oscillator.connect(gain);
+        oscillator.start(startAt + index * 0.1);
+        oscillator.stop(startAt + 0.34);
+      });
+    } catch (error) {
+      console.warn('Wrong sound failed:', error);
+    }
+  }
+
   function warmupTTS() {
     if (typeof window === 'undefined' || !window.speechSynthesis) return;
 
@@ -295,18 +333,37 @@ export default function HomePage() {
     router.refresh();
   }
 
-  function prepareWords(words, requestedCount) {
+  function prepareWords(words, requestedCount, questionMode = 'normal') {
     const availableWords = words
       .filter((word) => word?.id && word?.japanese && word?.english)
       .map((word) => ({
         id: word.id,
         japanese: word.japanese,
         english: word.english,
-        phonetic: word.phonetic || ''
+        phonetic: word.phonetic || '',
+        stats: word.stats || null
       }));
-    const shuffled = shuffleLocal(availableWords);
-    const target = requestedCount > 0 ? Math.min(requestedCount, shuffled.length) : shuffled.length;
-    return { quizWords: shuffled.slice(0, target), targetCount: target };
+
+    const rankedWords = (() => {
+      if (questionMode === 'review') {
+        return [...availableWords].sort((a, b) => {
+          const accuracyA = Number(a.stats?.accuracy ?? 0);
+          const accuracyB = Number(b.stats?.accuracy ?? 0);
+          const attemptsA = Number(a.stats?.attempt_count ?? 0);
+          const attemptsB = Number(b.stats?.attempt_count ?? 0);
+          if (accuracyA !== accuracyB) return accuracyA - accuracyB;
+          if (attemptsA !== attemptsB) return attemptsA - attemptsB;
+          return Math.random() - 0.5;
+        });
+      }
+      if (questionMode === 'balanced') {
+        return [...availableWords];
+      }
+      return shuffleLocal(availableWords);
+    })();
+
+    const target = requestedCount > 0 ? Math.min(requestedCount, rankedWords.length) : rankedWords.length;
+    return { quizWords: rankedWords.slice(0, target), targetCount: target };
   }
 
   function startQuestion(nextState) {
@@ -386,7 +443,7 @@ export default function HomePage() {
     try {
       const words = selectedWords || (await fetchWords(safeRequestedCount));
 
-      const { quizWords, targetCount } = prepareWords(words, safeRequestedCount);
+      const { quizWords, targetCount } = prepareWords(words, safeRequestedCount, game.questionMode);
       if (!targetCount) {
         setGame((prev) => ({ ...prev, isLoading: false, errorMessage: '出題できる単語がありません。' }));
         return;
@@ -486,6 +543,8 @@ export default function HomePage() {
     if (isCorrect) {
       playCorrectSound();
       addTimer(() => setGame((current) => ({ ...current, showCircle: false })), 400);
+    } else {
+      playWrongSound();
     }
 
     if (isLast) {
@@ -540,7 +599,7 @@ export default function HomePage() {
   function handleRetry() {
     const requestedCount = Number(game.countInput);
     const safeRequestedCount = Number.isFinite(requestedCount) && requestedCount > 0 ? Math.floor(requestedCount) : game.targetCount;
-    const { quizWords, targetCount } = prepareWords(game.words, safeRequestedCount);
+    const { quizWords, targetCount } = prepareWords(game.words, safeRequestedCount, game.questionMode);
     if (!targetCount) {
       setGame((prev) => ({ ...prev, screen: 'intro', errorMessage: '出題できる単語がありません。' }));
       return;
@@ -638,12 +697,12 @@ export default function HomePage() {
             <div className="questionModeArea">
               <p className="sectionLabel">出題方法</p>
               <div className="questionModes">
-                <button type="button" className={`questionModeBtn ${game.questionMode === 'normal' ? 'active' : ''}`} onClick={() => void handleQuestionModeChange('normal')}>
-                  通常
-                </button>
-                <button type="button" className={`questionModeBtn ${game.questionMode === 'select' ? 'active' : ''}`} onClick={() => void handleQuestionModeChange('select')}>
-                  選択
-                </button>
+                {QUESTION_MODE_OPTIONS.map((option) => (
+                  <button type="button" key={option.key} className={`questionModeBtn ${game.questionMode === option.key ? 'active' : ''} ${option.key === 'select' ? 'subtleMode' : ''}`} onClick={() => void handleQuestionModeChange(option.key)}>
+                    <span>{option.label}</span>
+                    <small>{option.description}</small>
+                  </button>
+                ))}
               </div>
             </div>
             {game.questionMode === 'select' && (
@@ -811,17 +870,31 @@ export default function HomePage() {
                 </article>
               ))}
             </div>
-            <div className="retryArea">
-              <input
-                className="retryCount"
-                type="number"
-                min="1"
-                value={game.countInput || game.targetCount}
-                onChange={(event) => setGame((prev) => ({ ...prev, countInput: event.target.value }))}
-                aria-label="再チャレンジの出題数"
-              />
-              <button className="retryBtn" type="button" onClick={handleRetry}>
-                🔁 もう一度チャレンジ
+            <div className="retryPanel">
+              <p className="sectionLabel">再チャレンジ設定</p>
+              <div className="questionModes resultModes">
+                {QUESTION_MODE_OPTIONS.map((option) => (
+                  <button type="button" key={`result-${option.key}`} className={`questionModeBtn ${game.questionMode === option.key ? 'active' : ''} ${option.key === 'select' ? 'subtleMode' : ''}`} onClick={() => void handleQuestionModeChange(option.key)}>
+                    <span>{option.label}</span>
+                    <small>{option.description}</small>
+                  </button>
+                ))}
+              </div>
+              <div className="retryArea">
+                <input
+                  className="retryCount"
+                  type="number"
+                  min="1"
+                  value={game.countInput || game.targetCount}
+                  onChange={(event) => setGame((prev) => ({ ...prev, countInput: event.target.value }))}
+                  aria-label="再チャレンジの出題数"
+                />
+                <button className="retryBtn" type="button" onClick={handleRetry}>
+                  🔁 もう一度チャレンジ
+                </button>
+              </div>
+              <button className="backSettingBtn" type="button" onClick={() => setGame((prev) => ({ ...prev, screen: 'intro', state: 'idle' }))}>
+                出題設定に戻る
               </button>
             </div>
           </div>
@@ -932,12 +1005,23 @@ export default function HomePage() {
           gap: 8px;
         }
         .questionModeBtn {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
           flex: 1;
           border: 1px solid #c7d8f0;
           border-radius: 10px;
           background: #f8fbff;
           color: #4f6b94;
           padding: 0.6em;
+        }
+        .questionModeBtn small {
+          font-size: 0.68rem;
+          color: #6f86a9;
+        }
+        .questionModeBtn.subtleMode {
+          opacity: 0.88;
         }
         .questionModeBtn.active {
           background: #dbe9fb;
@@ -1210,16 +1294,12 @@ export default function HomePage() {
           position: absolute;
           inset: 0;
           margin: auto;
-          width: 180px;
-          height: 180px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 8rem;
-          line-height: 1;
-          color: #66bb6a;
-          text-shadow: 0 6px 14px rgba(102, 187, 106, 0.18);
-          background: rgba(255, 255, 255, 0.78);
+          width: 132px;
+          height: 132px;
+          border: 10px solid #3fae4a;
+          border-radius: 999px;
+          background: transparent;
+          box-shadow: 0 4px 12px rgba(48, 139, 57, 0.18);
           pointer-events: none;
           animation: pop 0.4s ease-out;
           z-index: 2;
@@ -1382,6 +1462,12 @@ export default function HomePage() {
           transform-origin: center;
         }
 
+        .retryPanel {
+          margin-top: 12px;
+        }
+        .resultModes {
+          margin-bottom: 10px;
+        }
         .retryArea {
           text-align: center;
           margin-top: 18px;
@@ -1399,6 +1485,15 @@ export default function HomePage() {
           color: #4f6b94;
         }
 
+        .backSettingBtn {
+          margin-top: 8px;
+          width: 100%;
+          border: 1px solid #c7d8f0;
+          background: #f8fbff;
+          color: #4f6b94;
+          border-radius: 10px;
+          padding: 0.6em;
+        }
         .retryBtn {
           font-size: 1.05rem;
           padding: 0.6em 1.2em;
@@ -1479,12 +1574,27 @@ export default function HomePage() {
             font-size: 5.2vw;
           }
 
-          .retryArea {
+          .retryPanel {
+          margin-top: 12px;
+        }
+        .resultModes {
+          margin-bottom: 10px;
+        }
+        .retryArea {
             flex-direction: column;
           }
 
           .retryCount,
-          .retryBtn {
+          .backSettingBtn {
+          margin-top: 8px;
+          width: 100%;
+          border: 1px solid #c7d8f0;
+          background: #f8fbff;
+          color: #4f6b94;
+          border-radius: 10px;
+          padding: 0.6em;
+        }
+        .retryBtn {
             width: 100%;
           }
         }
