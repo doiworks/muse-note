@@ -37,18 +37,21 @@ const INITIAL_GAME = {
   countInput: '',
   mode: 'normal',
   questionMode: 'normal',
+  selectionView: 'simple',
+  pageSize: 50,
+  showSelectedPanel: false,
   words: [],
   selectableWords: [],
   selectedWordIds: [],
   wordSearch: '',
   filters: {
-    school_level: '',
-    grade: '',
-    term: '',
-    exam_type: '',
-    category1: '',
-    category2: '',
-    category3: '',
+    school_level: [],
+    grade: [],
+    term: [],
+    exam_type: [],
+    category1: [],
+    category2: [],
+    category3: [],
     importantOnly: false,
     selectedOnly: false
   },
@@ -144,18 +147,21 @@ export default function HomePage() {
       );
     if (!matchesKeyword) return false;
     const { filters } = game;
+    const matchesMulti = (key) => !filters[key]?.length || filters[key].includes(String(word[key]));
     const matchesFilters =
-      (!filters.school_level || String(word.school_level) === filters.school_level) &&
-      (!filters.grade || String(word.grade) === filters.grade) &&
-      (!filters.term || String(word.term) === filters.term) &&
-      (!filters.exam_type || String(word.exam_type) === filters.exam_type) &&
-      (!filters.category1 || String(word.category1) === filters.category1) &&
-      (!filters.category2 || String(word.category2) === filters.category2) &&
-      (!filters.category3 || String(word.category3) === filters.category3) &&
+      matchesMulti('school_level') &&
+      matchesMulti('grade') &&
+      matchesMulti('term') &&
+      matchesMulti('exam_type') &&
+      matchesMulti('category1') &&
+      matchesMulti('category2') &&
+      matchesMulti('category3') &&
       (!filters.importantOnly || isImportantWord(word)) &&
       (!filters.selectedOnly || game.selectedWordIds.includes(word.id));
     return matchesFilters;
   });
+  const pagedWords = filteredWords.slice(0, game.pageSize);
+  const selectedWords = game.selectableWords.filter((word) => game.selectedWordIds.includes(word.id));
 
 
   useEffect(() => {
@@ -587,9 +593,17 @@ export default function HomePage() {
   function setFilterValue(key, value) {
     setGame((prev) => ({ ...prev, filters: { ...prev.filters, [key]: value } }));
   }
+  function toggleFilterOption(key, value) {
+    setGame((prev) => {
+      const current = new Set(prev.filters[key] || []);
+      if (current.has(value)) current.delete(value);
+      else current.add(value);
+      return { ...prev, filters: { ...prev.filters, [key]: [...current] } };
+    });
+  }
 
   function selectVisible(shouldSelect) {
-    const visibleIds = filteredWords.map((word) => word.id);
+    const visibleIds = pagedWords.map((word) => word.id);
     setGame((prev) => {
       const current = new Set(prev.selectedWordIds);
       visibleIds.forEach((id) => (shouldSelect ? current.add(id) : current.delete(id)));
@@ -602,6 +616,14 @@ export default function HomePage() {
       ...prev,
       selectedWordIds: shouldSelect ? prev.selectableWords.map((word) => word.id) : []
     }));
+  }
+  function selectFiltered(shouldSelect) {
+    const ids = filteredWords.map((word) => word.id);
+    setGame((prev) => {
+      const current = new Set(prev.selectedWordIds);
+      ids.forEach((id) => (shouldSelect ? current.add(id) : current.delete(id)));
+      return { ...prev, selectedWordIds: [...current] };
+    });
   }
 
   return (
@@ -649,13 +671,24 @@ export default function HomePage() {
             {game.questionMode === 'select' && (
               <div className="selectArea">
                 <input className="searchInput" placeholder="検索: english / japanese / phonetic / example / 品詞 / カテゴリ" value={game.wordSearch} onChange={(event) => setGame((prev) => ({ ...prev, wordSearch: event.target.value }))} />
+                <div className="questionModes">
+                  <button type="button" className={`questionModeBtn ${game.selectionView === 'simple' ? 'active' : ''}`} onClick={() => setGame((prev) => ({ ...prev, selectionView: 'simple' }))}>シンプル選択</button>
+                  <button type="button" className={`questionModeBtn ${game.selectionView === 'detail' ? 'active' : ''}`} onClick={() => setGame((prev) => ({ ...prev, selectionView: 'detail' }))}>詳細選択</button>
+                </div>
                 <div className="filterGrid">
-                  {['school_level','grade','term','exam_type','category1','category2','category3'].map((key) => (
-                    <select key={key} className="filterSelect" value={game.filters[key]} onChange={(event) => setFilterValue(key, event.target.value)}>
-                      <option value="">{key}</option>
-                      {(filterOptions[key] || []).map((value) => <option key={value} value={value}>{value}</option>)}
-                    </select>
+                  {(game.selectionView === 'simple' ? ['grade','term','category1'] : ['school_level','grade','term','exam_type','category1','category2','category3']).map((key) => (
+                    <details key={key} className="multiFilter">
+                      <summary>{key} {game.filters[key]?.length ? `(${game.filters[key].length})` : ''}</summary>
+                      <div className="multiOptions">
+                        {(filterOptions[key] || []).map((value) => (
+                          <label key={value}><input type="checkbox" checked={(game.filters[key] || []).includes(value)} onChange={() => toggleFilterOption(key, value)} />{value}</label>
+                        ))}
+                      </div>
+                    </details>
                   ))}
+                </div>
+                <div className="chipRow">
+                  {['grade','term','exam_type','category1','category2','category3','school_level'].flatMap((key) => (game.filters[key] || []).map((value) => <span className="miniBadge" key={`${key}-${value}`}>{key}:{value}</span>))}
                 </div>
                 <div className="toggleRow">
                   <label><input type="checkbox" checked={game.filters.importantOnly} onChange={(event) => setFilterValue('importantOnly', event.target.checked)} /> 重要のみ</label>
@@ -663,20 +696,31 @@ export default function HomePage() {
                 </div>
                 <p className="selectedCount">選択数: {game.selectedWordIds.length}件 / 表示中: {filteredWords.length}件</p>
                 <div className="bulkRow">
+                  <button type="button" onClick={() => selectFiltered(true)}>絞り込み一致を追加</button>
+                  <button type="button" onClick={() => selectFiltered(false)}>絞り込み一致を解除</button>
                   <button type="button" onClick={() => selectVisible(true)}>表示中をすべて選択</button>
                   <button type="button" onClick={() => selectVisible(false)}>表示中をすべて解除</button>
                   <button type="button" onClick={() => selectAll(true)}>すべて選択</button>
                   <button type="button" onClick={() => selectAll(false)}>すべて解除</button>
                 </div>
+                <div className="toggleRow">
+                  <label>表示件数
+                    <select className="filterSelect" value={game.pageSize} onChange={(e) => setGame((prev) => ({ ...prev, pageSize: Number(e.target.value) }))}>
+                      <option value={20}>20</option><option value={50}>50</option><option value={100}>100</option>
+                    </select>
+                  </label>
+                  <button type="button" onClick={() => setGame((prev) => ({ ...prev, showSelectedPanel: !prev.showSelectedPanel }))}>選択済み一覧 {game.showSelectedPanel ? '非表示' : '表示'}</button>
+                </div>
+                {game.showSelectedPanel && <div className="selectedPanel">{selectedWords.slice(0, 120).map((w) => <span key={w.id} className="miniBadge">{w.english}</span>)}</div>}
                 <div className="wordList">
-                  {filteredWords.map((word) => {
+                  {pagedWords.map((word) => {
                     const selected = game.selectedWordIds.includes(word.id);
                     const isImportant = isImportantWord(word);
                     const stats = word.stats;
                     return (
                       <button type="button" key={word.id} className={`wordItem ${selected ? 'selected' : ''}`} onClick={() => toggleSelectedWord(word.id)}>
                         <div className="wordMain">
-                          <div><strong>{word.english}</strong> / {word.japanese} {word.phonetic ? <span className="mini">{word.phonetic}</span> : null}</div>
+                          <div className="line1"><strong>{word.english}</strong> <span>{word.japanese}</span> {word.phonetic ? <span className="mini">{word.phonetic}</span> : null}</div>
                           <div className="badgeRow">
                             {word.grade ? <span className="miniBadge">G{word.grade}</span> : null}
                             {word.term ? <span className="miniBadge">T{word.term}</span> : null}
@@ -685,9 +729,9 @@ export default function HomePage() {
                             {word.category3 ? <span className="miniBadge">{word.category3}</span> : null}
                             {isImportant ? <span className="importantBadge">重要</span> : null}
                           </div>
-                          <div className="statsLine">{stats ? `正答率 ${Math.round(Number(stats.accuracy || 0))}% / 回答 ${stats.attempt_count} / 正 ${stats.success_count} / 誤 ${stats.mistake_count}` : '未出題'}</div>
+                          <div className="statsLine">{stats ? (game.selectionView === 'simple' ? `正答率 ${Math.round(Number(stats.accuracy || 0))}% / 回答 ${stats.attempt_count}` : `正答率 ${Math.round(Number(stats.accuracy || 0))}% / 回答 ${stats.attempt_count} / 正 ${stats.success_count} / 誤 ${stats.mistake_count}`) : '未出題'}</div>
                         </div>
-                        <span className="speakerBtn" onClick={(event) => { event.stopPropagation(); speak(word.english); }} role="button" aria-label={`${word.english}を発音`} tabIndex={0}>🔊</span>
+                        <span className="speakerBtn" onClick={(event) => { event.stopPropagation(); speak(word.english); }} role="button" aria-label={`${word.english}を発音`} tabIndex={0}><span className="speakerIcon">🔉</span></span>
                       </button>
                     );
                   })}
@@ -963,6 +1007,15 @@ export default function HomePage() {
           gap: 6px;
           margin-top: 8px;
         }
+        .multiFilter {
+          border: 1px solid #d0dbf1;
+          border-radius: 10px;
+          background: #fff;
+          padding: 4px 8px;
+        }
+        .multiFilter summary { cursor: pointer; font-size: 0.8rem; color: #4f6b94; }
+        .multiOptions { display: flex; flex-direction: column; gap: 3px; margin: 6px 0; max-height: 150px; overflow: auto; font-size: 0.8rem; }
+        .chipRow { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; }
         .filterSelect {
           border: 1px solid #d0dbf1;
           border-radius: 8px;
@@ -984,7 +1037,7 @@ export default function HomePage() {
           font-size: 0.8rem;
         }
         .wordList {
-          max-height: 220px;
+          max-height: 420px;
           overflow: auto;
           border: 1px solid #e2eaf7;
           border-radius: 10px;
@@ -1001,7 +1054,7 @@ export default function HomePage() {
           justify-content: space-between;
           align-items: center;
           width: 100%;
-          padding: 0.7em;
+          padding: 0.45em 0.55em;
           color: #486287;
           text-align: left;
         }
@@ -1011,12 +1064,15 @@ export default function HomePage() {
           box-shadow: 0 0 0 2px #a9d3fb inset;
         }
         .wordMain { flex: 1; min-width: 0; }
+        .line1 { display: flex; gap: 8px; align-items: baseline; font-size: 0.92rem; }
         .badgeRow { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
         .miniBadge { font-size: 0.7rem; border-radius: 999px; background: #eef4ff; padding: 2px 6px; }
         .importantBadge { font-size: 0.7rem; border-radius: 999px; background: #ffdde0; color: #b1001a; padding: 2px 7px; font-weight: 700; }
         .mini { font-size: 0.8rem; color: #6a7f9f; }
-        .statsLine { font-size: 0.75rem; margin-top: 4px; color: #4f6b94; }
-        .speakerBtn { font-size: 1.1rem; padding: 8px; margin-left: 6px; }
+        .statsLine { font-size: 0.72rem; margin-top: 4px; color: #4f6b94; }
+        .speakerBtn { padding: 3px 6px; margin-left: 6px; border-radius: 999px; background: #ecf5ff; border: 1px solid #b9d5f6; }
+        .speakerIcon { color: #4b8ed8; font-size: 1rem; }
+        .selectedPanel { margin-top: 8px; max-height: 90px; overflow: auto; border: 1px dashed #bfd3ef; border-radius: 10px; padding: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
 
         .modeBtn,
         .answerBtn,
