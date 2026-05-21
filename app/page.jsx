@@ -31,9 +31,8 @@ const MODE_TIMING = {
 };
 
 const QUESTION_MODE_OPTIONS = [
-  { key: 'normal', label: '通常', description: 'ランダムに出題' },
-  { key: 'balanced', label: '均等出題', description: '未学習・回答が少ない単語を優先' },
-  { key: 'review', label: '復習', description: '苦手な単語を優先' },
+  { key: 'balanced', label: 'まんべんなく', description: '全体をかたよりなく練習' },
+  { key: 'wrong', label: '間違い', description: '間違えた単語を復習' },
   { key: 'select', label: '選択', description: '単語を選んで出題' }
 ];
 const MIN_CANDIDATE_FETCH = 50;
@@ -45,7 +44,7 @@ const INITIAL_GAME = {
   userName: '',
   countInput: '',
   mode: 'normal',
-  questionMode: 'normal',
+  questionMode: 'balanced',
   words: [],
   selectableWords: [],
   selectedWordIds: [],
@@ -77,7 +76,7 @@ const INITIAL_GAME = {
   isLoading: false,
   showCircle: false,
   showPhonetic: false,
-  reviewFallbackAvailable: false
+  wrongModeFallbackAvailable: false
 };
 
 function normalizeText(value) {
@@ -336,7 +335,7 @@ export default function HomePage() {
     router.refresh();
   }
 
-  function prepareWords(words, requestedCount, questionMode = 'normal') {
+  function prepareWords(words, requestedCount, questionMode = 'balanced') {
     const availableWords = words
       .filter((word) => word?.id && word?.japanese && word?.english)
       .map((word) => ({
@@ -349,7 +348,7 @@ export default function HomePage() {
         last_answered_at: word.last_answered_at || null
       }));
 
-    const sourceWords = questionMode === 'review'
+    const sourceWords = questionMode === 'wrong'
       ? availableWords.filter((word) => Number(word.stats?.mistake_count ?? 0) > 0)
       : availableWords;
 
@@ -362,7 +361,7 @@ export default function HomePage() {
       const recencyA = Date.parse(a.last_answered_at || a.stats?.updated_at || '') || 0;
       const recencyB = Date.parse(b.last_answered_at || b.stats?.updated_at || '') || 0;
 
-      if (questionMode === 'review') {
+      if (questionMode === 'wrong') {
         const mistakeA = Number(a.stats?.mistake_count ?? 0);
         const mistakeB = Number(b.stats?.mistake_count ?? 0);
         const accuracyA = Number(a.stats?.accuracy ?? 100);
@@ -384,7 +383,7 @@ export default function HomePage() {
         return randomTie;
       }
 
-      // normal / balanced / select fallback: prioritize unseen, then low attempts, then older recency.
+      // balanced / select fallback: prioritize unseen, then low attempts, then older recency.
       if (isUnseenA !== isUnseenB) return isUnseenA ? -1 : 1;
       if (attemptCountA !== attemptCountB) return attemptCountA - attemptCountB;
       if (recencyA !== recencyB) return recencyA - recencyB;
@@ -434,14 +433,15 @@ export default function HomePage() {
     }, autoJudgeAt * 1000);
   }
 
-  async function fetchWords(requestedCount = null) {
+  async function fetchWords(requestedCount = null, questionMode = 'balanced') {
     console.time?.('fetchWords');
     try {
       const requested =
         Number.isFinite(requestedCount) && requestedCount > 0 ? Math.floor(requestedCount) : MIN_CANDIDATE_FETCH;
       const candidateLimit = Math.max(MIN_CANDIDATE_FETCH, requested);
       const safeLimit = Math.min(candidateLimit, MAX_FETCH_LIMIT);
-      const query = `?limit=${safeLimit}`;
+      const serverMode = questionMode === 'wrong' ? 'wrong' : 'balanced';
+      const query = `?limit=${safeLimit}&mode=${serverMode}`;
       const response = await fetch(`/api/words${query}`);
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -455,13 +455,13 @@ export default function HomePage() {
 
   async function handleQuestionModeChange(questionMode) {
     setGame((prev) => {
-      const next = { ...prev, questionMode, errorMessage: '', reviewFallbackAvailable: false };
+      const next = { ...prev, questionMode, errorMessage: '', wrongModeFallbackAvailable: false };
       gameRef.current = next;
       return next;
     });
     if (questionMode !== 'select' || game.selectableWords.length) return;
     try {
-      const words = await fetchWords();
+      const words = await fetchWords(null, questionMode);
       setGame((prev) => ({ ...prev, selectableWords: words }));
     } catch (error) {
       setGame((prev) => ({ ...prev, errorMessage: error.message }));
@@ -485,18 +485,18 @@ export default function HomePage() {
     setGame((prev) => ({ ...prev, mode, isLoading: true, errorMessage: '' }));
 
     try {
-      const words = selectedWords || (await fetchWords(safeRequestedCount));
+      const words = selectedWords || (await fetchWords(safeRequestedCount, activeQuestionMode));
 
       console.time?.('prepareWords');
       const { quizWords, targetCount } = prepareWords(words, safeRequestedCount, activeQuestionMode);
       console.timeEnd?.('prepareWords');
       if (!targetCount) {
-        const reviewEmpty = activeQuestionMode === 'review';
+        const wrongEmpty = activeQuestionMode === 'wrong';
         setGame((prev) => ({
           ...prev,
           isLoading: false,
-          reviewFallbackAvailable: reviewEmpty,
-          errorMessage: reviewEmpty ? '復習対象の単語はまだありません' : '出題できる単語がありません。'
+          wrongModeFallbackAvailable: wrongEmpty,
+          errorMessage: wrongEmpty ? '間違えた単語はまだありません' : '出題できる単語がありません。'
         }));
         return;
       }
@@ -521,7 +521,7 @@ export default function HomePage() {
       setGame((prev) => ({
         ...prev,
         isLoading: false,
-        reviewFallbackAvailable: false,
+        wrongModeFallbackAvailable: false,
         errorMessage: error.message || '単語データの取得に失敗しました。時間をおいて再度お試しください。'
       }));
     }
@@ -670,20 +670,20 @@ export default function HomePage() {
     setGame((prev) => ({ ...prev, isLoading: true, errorMessage: '' }));
     try {
       const selectedWords = current.selectableWords.filter((word) => current.selectedWordIds.includes(word.id));
-      const shouldRefetch = current.questionMode !== 'select' && !current.words.length;
+      const shouldRefetch = current.questionMode !== 'select';
       const words = current.questionMode === 'select'
         ? selectedWords
-        : (shouldRefetch ? await fetchWords(safeRequestedCount) : current.words);
+        : (shouldRefetch ? await fetchWords(safeRequestedCount, current.questionMode) : current.words);
       console.time?.('prepareWords');
       const { quizWords, targetCount } = prepareWords(words, safeRequestedCount, current.questionMode);
       console.timeEnd?.('prepareWords');
       if (!targetCount) {
-        const reviewEmpty = current.questionMode === 'review';
+        const wrongEmpty = current.questionMode === 'wrong';
         setGame((prev) => ({
           ...prev,
           isLoading: false,
-          reviewFallbackAvailable: reviewEmpty,
-          errorMessage: reviewEmpty ? '復習対象の単語はまだありません' : '出題できる単語がありません。'
+          wrongModeFallbackAvailable: wrongEmpty,
+          errorMessage: wrongEmpty ? '間違えた単語はまだありません' : '出題できる単語がありません。'
         }));
         return;
       }
@@ -709,15 +709,57 @@ export default function HomePage() {
       setGame((prev) => ({
         ...prev,
         isLoading: false,
-        reviewFallbackAvailable: false,
+        wrongModeFallbackAvailable: false,
         errorMessage: error.message || '単語データの取得に失敗しました。時間をおいて再度お試しください。'
       }));
     }
   }
 
+  function handleRetrySameWords() {
+    const current = gameRef.current;
+    if (!current.quizWords.length) return;
+    startQuestion({
+      ...INITIAL_GAME,
+      userName: current.userName,
+      countInput: current.countInput,
+      mode: current.mode,
+      questionMode: current.questionMode,
+      words: current.words,
+      selectableWords: current.selectableWords,
+      selectedWordIds: current.selectedWordIds,
+      wordSearch: current.wordSearch,
+      filters: current.filters,
+      quizWords: current.quizWords,
+      targetCount: current.targetCount,
+      totalStart: Date.now(),
+      now: Date.now()
+    });
+  }
+
   function handleStartNormalFallback() {
     if (game.questionMode === 'select') return;
-    void handleStart(game.mode || 'normal', null, 'normal');
+    void handleStart(game.mode || 'normal', null, 'balanced');
+  }
+
+  function renderQuestionSettings() {
+    return (
+      <>
+        <div className="questionModeArea">
+          <p className="sectionLabel">出題方法</p>
+          <div className="questionModes">
+            {QUESTION_MODE_OPTIONS.map((option) => (
+              <button type="button" key={option.key} className={`questionModeBtn ${game.questionMode === option.key ? 'active' : ''} ${option.key === 'select' ? 'subtleMode' : ''}`} onClick={() => void handleQuestionModeChange(option.key)}>
+                <span>{option.label}</span>
+                <small>{option.description}</small>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="retryArea">
+          <input className="retryCount" type="number" min="1" value={game.countInput} onChange={(event) => setGame((prev) => ({ ...prev, countInput: event.target.value, errorMessage: '' }))} aria-label="出題数" placeholder="出題数（空=全件）" />
+        </div>
+      </>
+    );
   }
 
   function toggleSelectedWord(wordId) {
@@ -785,23 +827,11 @@ export default function HomePage() {
               <input
                 className="countInput"
                 value={game.countInput}
-                onChange={(event) => setGame((prev) => ({ ...prev, countInput: event.target.value, errorMessage: '' }))}
-                type="number"
-                min="1"
-                placeholder="出題数（空=全件）"
+                readOnly
+                placeholder="出題数は下で設定"
               />
             </div>
-            <div className="questionModeArea">
-              <p className="sectionLabel">出題方法</p>
-              <div className="questionModes">
-                {QUESTION_MODE_OPTIONS.map((option) => (
-                  <button type="button" key={option.key} className={`questionModeBtn ${game.questionMode === option.key ? 'active' : ''} ${option.key === 'select' ? 'subtleMode' : ''}`} onClick={() => void handleQuestionModeChange(option.key)}>
-                    <span>{option.label}</span>
-                    <small>{option.description}</small>
-                  </button>
-                ))}
-              </div>
-            </div>
+            {renderQuestionSettings()}
             {game.questionMode === 'select' && (
               <div className="selectArea">
                 <input className="searchInput" placeholder="検索: english / japanese / phonetic / example / 品詞 / カテゴリ" value={game.wordSearch} onChange={(event) => setGame((prev) => ({ ...prev, wordSearch: event.target.value }))} />
@@ -865,9 +895,9 @@ export default function HomePage() {
               ))}
             </div>
             {game.errorMessage && <p className="errorMessage">{game.errorMessage}</p>}
-            {game.reviewFallbackAvailable && (
+            {game.wrongModeFallbackAvailable && (
               <button type="button" className="backSettingBtn" onClick={handleStartNormalFallback}>
-                通常出題で始める
+                まんべんなくで始める
               </button>
             )}
           </div>
@@ -973,34 +1003,22 @@ export default function HomePage() {
               ))}
             </div>
             <div className="retryPanel">
-              <p className="sectionLabel">再チャレンジ設定</p>
-              <div className="questionModes resultModes">
-                {QUESTION_MODE_OPTIONS.filter((option) => option.key !== 'select').map((option) => (
-                  <button type="button" key={`result-${option.key}`} className={`questionModeBtn ${game.questionMode === option.key ? 'active' : ''} ${option.key === 'select' ? 'subtleMode' : ''}`} onClick={() => void handleQuestionModeChange(option.key)}>
-                    <span>{option.label}</span>
-                    <small>{option.description}</small>
-                  </button>
-                ))}
-              </div>
-              <div className="retryArea">
-                <input
-                  className="retryCount"
-                  type="number"
-                  min="1"
-                  value={game.countInput || game.targetCount}
-                  onChange={(event) => setGame((prev) => ({ ...prev, countInput: event.target.value }))}
-                  aria-label="再チャレンジの出題数"
-                />
+              <p className="sectionLabel">出題設定</p>
+              {renderQuestionSettings()}
+              <div className="retryActions">
                 <button className="retryBtn" type="button" onClick={handleRetry} disabled={game.isLoading}>
-                  {game.isLoading ? '読み込み中...' : '🔁 もう一度チャレンジ'}
+                  {game.isLoading ? '読み込み中...' : '同じ設定で次へ'}
+                </button>
+                <button className="retryBtn secondary" type="button" onClick={handleRetrySameWords}>
+                  同じ問題でもう一度
                 </button>
               </div>
               <button className="backSettingBtn" type="button" onClick={() => setGame((prev) => ({ ...prev, screen: 'intro', state: 'idle' }))}>
-                出題設定に戻る
+                設定に戻る
               </button>
-              {game.reviewFallbackAvailable && (
+              {game.wrongModeFallbackAvailable && (
                 <button type="button" className="backSettingBtn" onClick={handleStartNormalFallback}>
-                  通常出題で始める
+                  まんべんなくで始める
                 </button>
               )}
             </div>

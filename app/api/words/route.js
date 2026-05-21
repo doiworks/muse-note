@@ -28,6 +28,10 @@ const WORD_FETCH_ERROR_MESSAGE = '単語データの取得に失敗しました�
 const PREVIEW_USER_ID = '00000000-0000-4000-8000-000000000001';
 const DEFAULT_FETCH_LIMIT = 200;
 const MAX_FETCH_LIMIT = 500;
+const WORD_MODE = {
+  BALANCED: 'balanced',
+  WRONG: 'wrong'
+};
 
 function createErrorResponse(message, status) {
   return NextResponse.json({ error: message }, { status });
@@ -86,7 +90,10 @@ export async function GET(request) {
 
   try {
     const supabaseAdmin = getSupabaseAdmin();
-    const limit = parseLimit(new URL(request.url).searchParams.get('limit'));
+    const searchParams = new URL(request.url).searchParams;
+    const limit = parseLimit(searchParams.get('limit'));
+    const modeParam = String(searchParams.get('mode') || WORD_MODE.BALANCED).toLowerCase();
+    const isWrongMode = modeParam === WORD_MODE.WRONG || modeParam === 'review';
 
     const { data, error } = await supabaseAdmin
       .from('words')
@@ -139,7 +146,10 @@ export async function GET(request) {
       last_answered_at: statsMap[word.id]?.updated_at ?? null
     }));
 
-    const balancedWords = sortWordsForBalancedQuestions(wordsWithStats);
+    const candidateWords = isWrongMode
+      ? wordsWithStats.filter((word) => Number(word?.stats?.mistake_count ?? 0) > 0)
+      : wordsWithStats;
+    const balancedWords = sortWordsForBalancedQuestions(candidateWords);
 
     return NextResponse.json({ words: balancedWords });
   } catch (error) {
