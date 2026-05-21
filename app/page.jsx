@@ -348,8 +348,9 @@ export default function HomePage() {
     }, autoJudgeAt * 1000);
   }
 
-  async function fetchWords() {
-    const response = await fetch('/api/words');
+  async function fetchWords(requestedCount = null) {
+    const query = Number.isFinite(requestedCount) && requestedCount > 0 ? `?limit=${Math.floor(requestedCount)}` : '';
+    const response = await fetch(`/api/words${query}`);
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       throw new Error(data.error || '単語データの取得に失敗しました。時間をおいて再度お試しください。');
@@ -383,7 +384,7 @@ export default function HomePage() {
     setGame((prev) => ({ ...prev, mode, isLoading: true, errorMessage: '' }));
 
     try {
-      const words = selectedWords || (await fetchWords());
+      const words = selectedWords || (await fetchWords(safeRequestedCount));
 
       const { quizWords, targetCount } = prepareWords(words, safeRequestedCount);
       if (!targetCount) {
