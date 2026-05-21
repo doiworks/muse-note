@@ -103,7 +103,6 @@ export async function GET(request) {
     const wordIds = wordRows.map((word) => word.id).filter(Boolean);
 
     let statsMap = {};
-    let lastAnsweredAtMap = {};
 
     if (wordIds.length) {
       const { data: statsRows, error: statsError } = await supabaseAdmin
@@ -132,29 +131,12 @@ export async function GET(request) {
         ])
       );
 
-      const { data: historyRows, error: historyError } = await supabaseAdmin
-        .from('history')
-        .select('word_id,answered_at')
-        .eq('app_user_id', PREVIEW_USER_ID)
-        .in('word_id', wordIds)
-        .order('answered_at', { ascending: false });
-
-      if (historyError) {
-        console.error('Failed to fetch history with service role client:', historyError);
-        return createErrorResponse(WORD_FETCH_ERROR_MESSAGE, 500);
-      }
-
-      for (const row of historyRows ?? []) {
-        if (!lastAnsweredAtMap[row.word_id]) {
-          lastAnsweredAtMap[row.word_id] = row.answered_at;
-        }
-      }
     }
 
     const wordsWithStats = wordRows.map((word) => ({
       ...word,
       stats: statsMap[word.id] ?? null,
-      last_answered_at: lastAnsweredAtMap[word.id] ?? null
+      last_answered_at: statsMap[word.id]?.updated_at ?? null
     }));
 
     const balancedWords = sortWordsForBalancedQuestions(wordsWithStats);
