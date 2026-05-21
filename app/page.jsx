@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 const MODE_TIMING = {
@@ -140,11 +140,11 @@ export default function HomePage() {
   const totalElapsed = game.now && game.totalStart ? game.now - game.totalStart : 0;
   const questionElapsed = game.now && game.questionStart ? game.now - game.questionStart : 0;
   const accuracy = game.answeredCount ? Math.round((game.correctCount / game.answeredCount) * 100) : 0;
-  const filterOptions = ['school_level', 'grade', 'term', 'exam_type', 'category1', 'category2', 'category3'].reduce((acc, key) => {
+  const filterOptions = useMemo(() => ['school_level', 'grade', 'term', 'exam_type', 'category1', 'category2', 'category3'].reduce((acc, key) => {
     acc[key] = [...new Set(game.selectableWords.map((word) => word[key]).filter(hasValue).map(String))].sort((a, b) => a.localeCompare(b, 'ja'));
     return acc;
-  }, {});
-  const filteredWords = game.selectableWords.filter((word) => {
+  }, {}), [game.selectableWords]);
+  const filteredWords = useMemo(() => game.selectableWords.filter((word) => {
     const keyword = normalizeText(game.wordSearch);
     const matchesKeyword =
       !keyword ||
@@ -164,7 +164,7 @@ export default function HomePage() {
       (!filters.importantOnly || isImportantWord(word)) &&
       (!filters.selectedOnly || game.selectedWordIds.includes(word.id));
     return matchesFilters;
-  });
+  }), [game.selectableWords, game.wordSearch, game.filters, game.selectedWordIds]);
 
 
   useEffect(() => {
@@ -430,17 +430,22 @@ export default function HomePage() {
   }
 
   async function fetchWords(requestedCount = null) {
-    const requested =
-      Number.isFinite(requestedCount) && requestedCount > 0 ? Math.floor(requestedCount) : MIN_CANDIDATE_FETCH;
-    const candidateLimit = Math.max(MIN_CANDIDATE_FETCH, requested);
-    const safeLimit = Math.min(candidateLimit, MAX_FETCH_LIMIT);
-    const query = `?limit=${safeLimit}`;
-    const response = await fetch(`/api/words${query}`);
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(data.error || '単語データの取得に失敗しました。時間をおいて再度お試しください。');
+    console.time?.('fetchWords');
+    try {
+      const requested =
+        Number.isFinite(requestedCount) && requestedCount > 0 ? Math.floor(requestedCount) : MIN_CANDIDATE_FETCH;
+      const candidateLimit = Math.max(MIN_CANDIDATE_FETCH, requested);
+      const safeLimit = Math.min(candidateLimit, MAX_FETCH_LIMIT);
+      const query = `?limit=${safeLimit}`;
+      const response = await fetch(`/api/words${query}`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || '単語データの取得に失敗しました。時間をおいて再度お試しください。');
+      }
+      return data.words || [];
+    } finally {
+      console.timeEnd?.('fetchWords');
     }
-    return data.words || [];
   }
 
   async function handleQuestionModeChange(questionMode) {
@@ -477,7 +482,9 @@ export default function HomePage() {
     try {
       const words = selectedWords || (await fetchWords(safeRequestedCount));
 
+      console.time?.('prepareWords');
       const { quizWords, targetCount } = prepareWords(words, safeRequestedCount, activeQuestionMode);
+      console.timeEnd?.('prepareWords');
       if (!targetCount) {
         setGame((prev) => ({ ...prev, isLoading: false, errorMessage: '出題できる単語がありません。' }));
         return;
@@ -509,6 +516,7 @@ export default function HomePage() {
   }
 
   async function saveAnswerHistory({ word, answer, correct }) {
+    console.time?.('saveAnswerHistory');
     if (!word?.id) return;
 
     try {
@@ -527,6 +535,8 @@ export default function HomePage() {
       }
     } catch {
       console.warn('Answer history was not saved.');
+    } finally {
+      console.timeEnd?.('saveAnswerHistory');
     }
   }
 
@@ -583,7 +593,9 @@ export default function HomePage() {
 
     if (isLast) {
       addTimer(() => {
+        console.time?.('result screen transition');
         setGame((current) => ({ ...current, screen: 'result', state: 'finished', showCircle: false, now: Date.now() }));
+        console.timeEnd?.('result screen transition');
       }, (isCorrect ? timing.nextFast : timing.nextSlow) * 1000);
       return;
     }
@@ -632,14 +644,19 @@ export default function HomePage() {
 
   async function handleRetry() {
     const current = gameRef.current;
+    if (current.isLoading) return;
     const requestedCount = Number(current.countInput);
     const safeRequestedCount = Number.isFinite(requestedCount) && requestedCount > 0 ? Math.floor(requestedCount) : current.targetCount;
     setGame((prev) => ({ ...prev, isLoading: true, errorMessage: '' }));
     try {
+      const selectedWords = current.selectableWords.filter((word) => current.selectedWordIds.includes(word.id));
+      const shouldRefetch = current.questionMode !== 'select' && !current.words.length;
       const words = current.questionMode === 'select'
-        ? current.selectableWords.filter((word) => current.selectedWordIds.includes(word.id))
-        : await fetchWords(safeRequestedCount);
+        ? selectedWords
+        : (shouldRefetch ? await fetchWords(safeRequestedCount) : current.words);
+      console.time?.('prepareWords');
       const { quizWords, targetCount } = prepareWords(words, safeRequestedCount, current.questionMode);
+      console.timeEnd?.('prepareWords');
       if (!targetCount) {
         setGame((prev) => ({ ...prev, isLoading: false, screen: 'intro', errorMessage: '出題できる単語がありません。' }));
         return;
@@ -937,8 +954,8 @@ export default function HomePage() {
                   onChange={(event) => setGame((prev) => ({ ...prev, countInput: event.target.value }))}
                   aria-label="再チャレンジの出題数"
                 />
-                <button className="retryBtn" type="button" onClick={handleRetry}>
-                  🔁 もう一度チャレンジ
+                <button className="retryBtn" type="button" onClick={handleRetry} disabled={game.isLoading}>
+                  {game.isLoading ? '読み込み中...' : '🔁 もう一度チャレンジ'}
                 </button>
               </div>
               <button className="backSettingBtn" type="button" onClick={() => setGame((prev) => ({ ...prev, screen: 'intro', state: 'idle' }))}>
