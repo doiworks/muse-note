@@ -1136,67 +1136,6 @@ export default function HomePage() {
           grid-template-columns: repeat(3, minmax(0, 1fr));
           gap: 12px;
         }
-        .questionModes :global(button.quizMethodCard) {
-          display: flex;
-          flex-direction: column;
-          align-items: flex-start;
-          justify-content: flex-start;
-          flex: 1;
-          width: 100%;
-          appearance: none;
-          -webkit-appearance: none;
-          -moz-appearance: none;
-          border: 1px solid #b7d4f3;
-          text-decoration: none;
-          margin: 0;
-          border-radius: 16px;
-          background: linear-gradient(180deg, #ffffff 0%, #edf7ff 100%);
-          color: #245e94;
-          padding: 13px 14px 14px;
-          min-height: 96px;
-          text-align: left;
-          font: inherit;
-          line-height: 1.5;
-          cursor: pointer;
-          box-shadow: 0 2px 8px rgba(83, 137, 194, 0.1);
-          transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease,
-            transform 0.14s ease;
-        }
-        .questionModes :global(button.quizMethodCard:hover) {
-          background: linear-gradient(180deg, #fafdff 0%, #e5f2ff 100%);
-          border-color: #78afe7;
-          box-shadow: 0 6px 14px rgba(84, 144, 209, 0.2);
-        }
-        .questionModes :global(button.quizMethodCard:active) {
-          transform: translateY(1px);
-          box-shadow: 0 3px 9px rgba(84, 144, 209, 0.24);
-        }
-        .questionModes :global(button.quizMethodCard:focus-visible) {
-          outline: none;
-          border-color: #3d95e5;
-          box-shadow: 0 0 0 3px rgba(58, 147, 238, 0.36), 0 6px 14px rgba(76, 140, 215, 0.2);
-        }
-        .questionModes :global(button.quizMethodCard.quizMethodCardActive) {
-          background: linear-gradient(180deg, #3daef8 0%, #1f8adb 100%);
-          border-color: #1172be;
-          color: #ffffff;
-          box-shadow: 0 9px 18px rgba(23, 119, 195, 0.42), 0 0 0 2px rgba(205, 232, 255, 0.68) inset;
-        }
-        .quizMethodTitle {
-          display: block;
-          font-weight: 800;
-          font-size: 1.03rem;
-          letter-spacing: 0.01em;
-        }
-        .quizMethodDescription {
-          display: block;
-          margin-top: 6px;
-          font-size: 0.8rem;
-          color: #4f739f;
-        }
-        .questionModes :global(button.quizMethodCard.quizMethodCardActive) .quizMethodDescription {
-          color: rgba(255, 255, 255, 0.93);
-        }
         .selectArea {
           margin-top: 0.8rem;
           text-align: left;
@@ -1743,11 +1682,6 @@ export default function HomePage() {
             gap: 8px;
           }
 
-          .quizMethodCard {
-            min-height: 78px;
-            padding: 11px 12px;
-          }
-
           .modeBtn,
           .nameInput,
           .countInput {
@@ -1776,6 +1710,85 @@ export default function HomePage() {
         }
         .retryBtn {
             width: 100%;
+          }
+        }
+      `}</style>
+      <style jsx global>{`
+        .questionModes {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 12px;
+        }
+
+        button.quizMethodCard {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          justify-content: flex-start;
+          width: 100%;
+          appearance: none;
+          -webkit-appearance: none;
+          -moz-appearance: none;
+          border: 1px solid #b7d4f3;
+          text-decoration: none;
+          margin: 0;
+          border-radius: 16px;
+          background: linear-gradient(180deg, #ffffff 0%, #edf7ff 100%);
+          color: #245e94;
+          padding: 13px 14px 14px;
+          min-height: 96px;
+          text-align: left;
+          font: inherit;
+          line-height: 1.5;
+          cursor: pointer;
+          box-shadow: 0 2px 8px rgba(83, 137, 194, 0.1);
+          transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease,
+            transform 0.14s ease;
+        }
+        button.quizMethodCard:hover {
+          background: linear-gradient(180deg, #fafdff 0%, #e5f2ff 100%);
+          border-color: #78afe7;
+          box-shadow: 0 6px 14px rgba(84, 144, 209, 0.2);
+        }
+        button.quizMethodCard:active {
+          transform: translateY(1px);
+          box-shadow: 0 3px 9px rgba(84, 144, 209, 0.24);
+        }
+        button.quizMethodCard:focus-visible {
+          outline: none;
+          border-color: #3d95e5;
+          box-shadow: 0 0 0 3px rgba(58, 147, 238, 0.36), 0 6px 14px rgba(76, 140, 215, 0.2);
+        }
+        button.quizMethodCard.quizMethodCardActive {
+          background: linear-gradient(180deg, #3daef8 0%, #1f8adb 100%);
+          border-color: #1172be;
+          color: #ffffff;
+          box-shadow: 0 9px 18px rgba(23, 119, 195, 0.42), 0 0 0 2px rgba(205, 232, 255, 0.68) inset;
+        }
+        .quizMethodTitle {
+          display: block;
+          font-weight: 800;
+          font-size: 1.03rem;
+          letter-spacing: 0.01em;
+        }
+        .quizMethodDescription {
+          display: block;
+          margin-top: 6px;
+          font-size: 0.8rem;
+          color: #4f739f;
+        }
+        button.quizMethodCard.quizMethodCardActive .quizMethodDescription {
+          color: rgba(255, 255, 255, 0.93);
+        }
+
+        @media (max-width: 600px) {
+          .questionModes {
+            grid-template-columns: 1fr;
+            gap: 8px;
+          }
+          button.quizMethodCard {
+            min-height: 78px;
+            padding: 11px 12px;
           }
         }
       `}</style>
