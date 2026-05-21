@@ -748,9 +748,15 @@ export default function HomePage() {
           <p className="sectionLabel">出題方法</p>
           <div className="questionModes">
             {QUESTION_MODE_OPTIONS.map((option) => (
-              <button type="button" key={option.key} className={`questionModeBtn ${game.questionMode === option.key ? 'active' : ''} ${option.key === 'select' ? 'subtleMode' : ''}`} onClick={() => void handleQuestionModeChange(option.key)}>
-                <span>{option.label}</span>
-                <small>{option.description}</small>
+              <button
+                type="button"
+                key={option.key}
+                className={`questionModeBtn ${game.questionMode === option.key ? 'active' : ''}`}
+                onClick={() => void handleQuestionModeChange(option.key)}
+                aria-pressed={game.questionMode === option.key}
+              >
+                <span className="questionModeTitle">{option.label}</span>
+                <span className="questionModeDescription">{option.description}</span>
               </button>
             ))}
           </div>
@@ -1126,31 +1132,60 @@ export default function HomePage() {
           text-align: left;
         }
         .questionModes {
-          display: flex;
-          gap: 8px;
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 10px;
         }
         .questionModeBtn {
           display: flex;
           flex-direction: column;
-          align-items: center;
-          justify-content: center;
+          align-items: flex-start;
+          justify-content: space-between;
           flex: 1;
-          border: 1px solid #c7d8f0;
-          border-radius: 10px;
-          background: #f8fbff;
-          color: #4f6b94;
-          padding: 0.6em;
+          border: 1.5px solid #bfd5f1;
+          border-radius: 14px;
+          background: linear-gradient(180deg, #ffffff 0%, #f5faff 100%);
+          color: #37608f;
+          padding: 12px 12px 13px;
+          min-height: 94px;
+          text-align: left;
+          font: inherit;
+          line-height: 1.45;
+          cursor: pointer;
+          transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease,
+            transform 0.14s ease;
         }
-        .questionModeBtn small {
-          font-size: 0.68rem;
-          color: #6f86a9;
+        .questionModeBtn:hover {
+          background: #eef6ff;
+          border-color: #90b9e6;
+          box-shadow: 0 5px 12px rgba(109, 159, 218, 0.17);
         }
-        .questionModeBtn.subtleMode {
-          opacity: 0.88;
+        .questionModeBtn:active {
+          transform: translateY(1px);
+          box-shadow: 0 3px 8px rgba(109, 159, 218, 0.2);
+        }
+        .questionModeBtn:focus-visible {
+          outline: none;
+          box-shadow: 0 0 0 3px rgba(58, 147, 238, 0.36), 0 6px 14px rgba(76, 140, 215, 0.2);
         }
         .questionModeBtn.active {
-          background: #dbe9fb;
-          border-color: #a8c9f0;
+          background: linear-gradient(180deg, #3ea4f0 0%, #2585d4 100%);
+          border-color: #1770bf;
+          color: #ffffff;
+          box-shadow: 0 8px 16px rgba(37, 133, 212, 0.34), 0 0 0 2px rgba(205, 232, 255, 0.75) inset;
+        }
+        .questionModeTitle {
+          font-weight: 800;
+          font-size: 1rem;
+          letter-spacing: 0.01em;
+        }
+        .questionModeDescription {
+          margin-top: 6px;
+          font-size: 0.78rem;
+          color: #5f7fa5;
+        }
+        .questionModeBtn.active .questionModeDescription {
+          color: rgba(255, 255, 255, 0.93);
         }
         .selectArea {
           margin-top: 0.8rem;
@@ -1691,6 +1726,16 @@ export default function HomePage() {
 
           .modeButtons {
             gap: 12px;
+          }
+
+          .questionModes {
+            grid-template-columns: 1fr;
+            gap: 8px;
+          }
+
+          .questionModeBtn {
+            min-height: 78px;
+            padding: 11px 12px;
           }
 
           .modeBtn,
