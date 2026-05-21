@@ -416,7 +416,11 @@ export default function HomePage() {
   }
 
   async function handleQuestionModeChange(questionMode) {
-    setGame((prev) => ({ ...prev, questionMode, errorMessage: '' }));
+    setGame((prev) => {
+      const next = { ...prev, questionMode, errorMessage: '' };
+      gameRef.current = next;
+      return next;
+    });
     if (questionMode !== 'select' || game.selectableWords.length) return;
     try {
       const words = await fetchWords();
@@ -426,8 +430,10 @@ export default function HomePage() {
     }
   }
 
-  async function handleStart(mode, selectedWords = null) {
-    const userName = game.userName.trim();
+  async function handleStart(mode, selectedWords = null, forcedQuestionMode = null) {
+    const current = gameRef.current;
+    const activeQuestionMode = forcedQuestionMode || current.questionMode;
+    const userName = current.userName.trim();
     if (!userName) {
       setGame((prev) => ({ ...prev, errorMessage: 'ユーザー名を入力してください。' }));
       return;
@@ -435,7 +441,7 @@ export default function HomePage() {
 
     clearAllTimers();
     warmupTTS();
-    const requestedCount = Number(game.countInput);
+    const requestedCount = Number(current.countInput);
     const safeRequestedCount = Number.isFinite(requestedCount) && requestedCount > 0 ? Math.floor(requestedCount) : 0;
 
     setGame((prev) => ({ ...prev, mode, isLoading: true, errorMessage: '' }));
@@ -443,7 +449,7 @@ export default function HomePage() {
     try {
       const words = selectedWords || (await fetchWords(safeRequestedCount));
 
-      const { quizWords, targetCount } = prepareWords(words, safeRequestedCount, game.questionMode);
+      const { quizWords, targetCount } = prepareWords(words, safeRequestedCount, activeQuestionMode);
       if (!targetCount) {
         setGame((prev) => ({ ...prev, isLoading: false, errorMessage: '出題できる単語がありません。' }));
         return;
@@ -452,14 +458,14 @@ export default function HomePage() {
       startQuestion({
         ...INITIAL_GAME,
         userName,
-        countInput: game.countInput,
+        countInput: current.countInput,
         mode,
-        questionMode: game.questionMode,
+        questionMode: activeQuestionMode,
         words,
-        selectableWords: game.selectableWords,
-        selectedWordIds: game.selectedWordIds,
-        wordSearch: game.wordSearch,
-        filters: game.filters,
+        selectableWords: current.selectableWords,
+        selectedWordIds: current.selectedWordIds,
+        wordSearch: current.wordSearch,
+        filters: current.filters,
         quizWords,
         targetCount,
         totalStart: Date.now(),
@@ -597,9 +603,10 @@ export default function HomePage() {
   }
 
   function handleRetry() {
-    const requestedCount = Number(game.countInput);
-    const safeRequestedCount = Number.isFinite(requestedCount) && requestedCount > 0 ? Math.floor(requestedCount) : game.targetCount;
-    const { quizWords, targetCount } = prepareWords(game.words, safeRequestedCount, game.questionMode);
+    const current = gameRef.current;
+    const requestedCount = Number(current.countInput);
+    const safeRequestedCount = Number.isFinite(requestedCount) && requestedCount > 0 ? Math.floor(requestedCount) : current.targetCount;
+    const { quizWords, targetCount } = prepareWords(current.words, safeRequestedCount, current.questionMode);
     if (!targetCount) {
       setGame((prev) => ({ ...prev, screen: 'intro', errorMessage: '出題できる単語がありません。' }));
       return;
@@ -607,15 +614,15 @@ export default function HomePage() {
 
     startQuestion({
       ...INITIAL_GAME,
-      userName: game.userName,
+      userName: current.userName,
       countInput: String(safeRequestedCount || ''),
-      mode: game.mode,
-      questionMode: game.questionMode,
-      words: game.words,
-      selectableWords: game.selectableWords,
-      selectedWordIds: game.selectedWordIds,
-      wordSearch: game.wordSearch,
-      filters: game.filters,
+      mode: current.mode,
+      questionMode: current.questionMode,
+      words: current.words,
+      selectableWords: current.selectableWords,
+      selectedWordIds: current.selectedWordIds,
+      wordSearch: current.wordSearch,
+      filters: current.filters,
       quizWords,
       targetCount,
       totalStart: Date.now(),
@@ -640,7 +647,7 @@ export default function HomePage() {
       return;
     }
     const selectedWords = game.selectableWords.filter((word) => game.selectedWordIds.includes(word.id));
-    void handleStart(mode, selectedWords);
+    void handleStart(mode, selectedWords, 'select');
   }
 
   function setFilterValue(key, value) {
@@ -873,7 +880,7 @@ export default function HomePage() {
             <div className="retryPanel">
               <p className="sectionLabel">再チャレンジ設定</p>
               <div className="questionModes resultModes">
-                {QUESTION_MODE_OPTIONS.map((option) => (
+                {QUESTION_MODE_OPTIONS.filter((option) => option.key !== 'select').map((option) => (
                   <button type="button" key={`result-${option.key}`} className={`questionModeBtn ${game.questionMode === option.key ? 'active' : ''} ${option.key === 'select' ? 'subtleMode' : ''}`} onClick={() => void handleQuestionModeChange(option.key)}>
                     <span>{option.label}</span>
                     <small>{option.description}</small>
