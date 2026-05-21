@@ -157,7 +157,7 @@ export async function GET(request) {
       last_answered_at: lastAnsweredAtMap[word.id] ?? null
     }));
 
-    const balancedWords = sortWordsForBalancedQuestions(wordsWithStats).map(({ last_answered_at, ...word }) => word);
+    const balancedWords = sortWordsForBalancedQuestions(wordsWithStats);
 
     return NextResponse.json({ words: balancedWords });
   } catch (error) {
