@@ -76,7 +76,8 @@ const INITIAL_GAME = {
   errorMessage: '',
   isLoading: false,
   showCircle: false,
-  showPhonetic: false
+  showPhonetic: false,
+  reviewFallbackAvailable: false
 };
 
 function normalizeText(value) {
@@ -348,7 +349,11 @@ export default function HomePage() {
         last_answered_at: word.last_answered_at || null
       }));
 
-    const rankedWords = [...availableWords].sort((a, b) => {
+    const sourceWords = questionMode === 'review'
+      ? availableWords.filter((word) => Number(word.stats?.mistake_count ?? 0) > 0)
+      : availableWords;
+
+    const rankedWords = [...sourceWords].sort((a, b) => {
       const randomTie = Math.random() - 0.5;
       const isUnseenA = !a.stats;
       const isUnseenB = !b.stats;
@@ -450,7 +455,7 @@ export default function HomePage() {
 
   async function handleQuestionModeChange(questionMode) {
     setGame((prev) => {
-      const next = { ...prev, questionMode, errorMessage: '' };
+      const next = { ...prev, questionMode, errorMessage: '', reviewFallbackAvailable: false };
       gameRef.current = next;
       return next;
     });
@@ -486,7 +491,13 @@ export default function HomePage() {
       const { quizWords, targetCount } = prepareWords(words, safeRequestedCount, activeQuestionMode);
       console.timeEnd?.('prepareWords');
       if (!targetCount) {
-        setGame((prev) => ({ ...prev, isLoading: false, errorMessage: '出題できる単語がありません。' }));
+        const reviewEmpty = activeQuestionMode === 'review';
+        setGame((prev) => ({
+          ...prev,
+          isLoading: false,
+          reviewFallbackAvailable: reviewEmpty,
+          errorMessage: reviewEmpty ? '復習対象の単語はまだありません' : '出題できる単語がありません。'
+        }));
         return;
       }
 
@@ -510,6 +521,7 @@ export default function HomePage() {
       setGame((prev) => ({
         ...prev,
         isLoading: false,
+        reviewFallbackAvailable: false,
         errorMessage: error.message || '単語データの取得に失敗しました。時間をおいて再度お試しください。'
       }));
     }
@@ -666,7 +678,13 @@ export default function HomePage() {
       const { quizWords, targetCount } = prepareWords(words, safeRequestedCount, current.questionMode);
       console.timeEnd?.('prepareWords');
       if (!targetCount) {
-        setGame((prev) => ({ ...prev, isLoading: false, screen: 'intro', errorMessage: '出題できる単語がありません。' }));
+        const reviewEmpty = current.questionMode === 'review';
+        setGame((prev) => ({
+          ...prev,
+          isLoading: false,
+          reviewFallbackAvailable: reviewEmpty,
+          errorMessage: reviewEmpty ? '復習対象の単語はまだありません' : '出題できる単語がありません。'
+        }));
         return;
       }
 
@@ -691,9 +709,15 @@ export default function HomePage() {
       setGame((prev) => ({
         ...prev,
         isLoading: false,
+        reviewFallbackAvailable: false,
         errorMessage: error.message || '単語データの取得に失敗しました。時間をおいて再度お試しください。'
       }));
     }
+  }
+
+  function handleStartNormalFallback() {
+    if (game.questionMode === 'select') return;
+    void handleStart(game.mode || 'normal', null, 'normal');
   }
 
   function toggleSelectedWord(wordId) {
@@ -841,6 +865,11 @@ export default function HomePage() {
               ))}
             </div>
             {game.errorMessage && <p className="errorMessage">{game.errorMessage}</p>}
+            {game.reviewFallbackAvailable && (
+              <button type="button" className="backSettingBtn" onClick={handleStartNormalFallback}>
+                通常出題で始める
+              </button>
+            )}
           </div>
         )}
 
@@ -969,6 +998,11 @@ export default function HomePage() {
               <button className="backSettingBtn" type="button" onClick={() => setGame((prev) => ({ ...prev, screen: 'intro', state: 'idle' }))}>
                 出題設定に戻る
               </button>
+              {game.reviewFallbackAvailable && (
+                <button type="button" className="backSettingBtn" onClick={handleStartNormalFallback}>
+                  通常出題で始める
+                </button>
+              )}
             </div>
           </div>
         )}
