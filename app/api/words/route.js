@@ -26,14 +26,57 @@ const WORD_COLUMNS = [
 
 const WORD_FETCH_ERROR_MESSAGE = '単語データの取得に失敗しました。時間をおいて再度お試しください。';
 const PREVIEW_USER_ID = '00000000-0000-4000-8000-000000000001';
+const DEFAULT_FETCH_LIMIT = 200;
+const MAX_FETCH_LIMIT = 500;
 
 function createErrorResponse(message, status) {
   return NextResponse.json({ error: message }, { status });
 }
 
+function parseLimit(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_FETCH_LIMIT;
+  }
+  return Math.min(Math.floor(parsed), MAX_FETCH_LIMIT);
+}
+
+function rankWordForBalancedOrder(word) {
+  const attemptCount = Number(word?.stats?.attempt_count ?? 0);
+  const lastAnsweredAtText = word?.last_answered_at;
+  const lastAnsweredAt = lastAnsweredAtText ? Date.parse(lastAnsweredAtText) : null;
+  const recencyScore = Number.isFinite(lastAnsweredAt) ? lastAnsweredAt : Number.NEGATIVE_INFINITY;
+
+  return {
+    isUnseen: word.stats == null,
+    attemptCount,
+    recencyScore,
+    tieBreaker: Math.random()
+  };
+}
+
+function sortWordsForBalancedQuestions(wordsWithStats) {
+  return [...wordsWithStats].sort((a, b) => {
+    const rankA = rankWordForBalancedOrder(a);
+    const rankB = rankWordForBalancedOrder(b);
+
+    if (rankA.isUnseen !== rankB.isUnseen) {
+      return rankA.isUnseen ? -1 : 1;
+    }
+
+    if (rankA.attemptCount !== rankB.attemptCount) {
+      return rankA.attemptCount - rankB.attemptCount;
+    }
+
+    if (rankA.recencyScore !== rankB.recencyScore) {
+      return rankA.recencyScore - rankB.recencyScore;
+    }
+
+    return rankA.tieBreaker - rankB.tieBreaker;
+  });
+}
+
 export async function GET(request) {
-  // middleware だけに頼らず、API側でも cookie を確認します。
-  // これにより、ログイン済みの開発確認ユーザーだけが words を取得できます。
   const sessionCookie = request.cookies.get(PREVIEW_SESSION_COOKIE_NAME)?.value;
   const isLoggedIn = await verifyPreviewSessionCookieValue(sessionCookie);
 
@@ -42,19 +85,16 @@ export async function GET(request) {
   }
 
   try {
-    // service_role key はこのサーバー側 API Route の中だけで使用します。
-    // ブラウザは Supabase に直接接続せず、/api/words だけを呼び出します。
     const supabaseAdmin = getSupabaseAdmin();
+    const limit = parseLimit(new URL(request.url).searchParams.get('limit'));
 
-    // wordsテーブルから、画面・学習機能で利用する列だけをAPIレスポンスとして取得します。
     const { data, error } = await supabaseAdmin
       .from('words')
       .select(WORD_COLUMNS)
       .order('id', { ascending: true })
-      .limit(200);
+      .limit(limit);
 
     if (error) {
-      // 詳細なSupabaseエラーはサーバーログだけに残し、ブラウザには安全な文言だけ返します。
       console.error('Failed to fetch words with service role client:', error);
       return createErrorResponse(WORD_FETCH_ERROR_MESSAGE, 500);
     }
@@ -63,6 +103,8 @@ export async function GET(request) {
     const wordIds = wordRows.map((word) => word.id).filter(Boolean);
 
     let statsMap = {};
+    let lastAnsweredAtMap = {};
+
     if (wordIds.length) {
       const { data: statsRows, error: statsError } = await supabaseAdmin
         .from('stats')
@@ -89,16 +131,36 @@ export async function GET(request) {
           }
         ])
       );
+
+      const { data: historyRows, error: historyError } = await supabaseAdmin
+        .from('history')
+        .select('word_id,answered_at')
+        .eq('app_user_id', PREVIEW_USER_ID)
+        .in('word_id', wordIds)
+        .order('answered_at', { ascending: false });
+
+      if (historyError) {
+        console.error('Failed to fetch history with service role client:', historyError);
+        return createErrorResponse(WORD_FETCH_ERROR_MESSAGE, 500);
+      }
+
+      for (const row of historyRows ?? []) {
+        if (!lastAnsweredAtMap[row.word_id]) {
+          lastAnsweredAtMap[row.word_id] = row.answered_at;
+        }
+      }
     }
 
     const wordsWithStats = wordRows.map((word) => ({
       ...word,
-      stats: statsMap[word.id] ?? null
+      stats: statsMap[word.id] ?? null,
+      last_answered_at: lastAnsweredAtMap[word.id] ?? null
     }));
 
-    return NextResponse.json({ words: wordsWithStats });
+    const balancedWords = sortWordsForBalancedQuestions(wordsWithStats).map(({ last_answered_at, ...word }) => word);
+
+    return NextResponse.json({ words: balancedWords });
   } catch (error) {
-    // 環境変数不足などの設定エラーも、service role key や内部詳細をブラウザへ漏らしません。
     console.error('Failed to initialize or use Supabase service role client:', error);
     return createErrorResponse(WORD_FETCH_ERROR_MESSAGE, 500);
   }
