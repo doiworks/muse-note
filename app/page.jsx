@@ -633,6 +633,14 @@ export default function HomePage() {
     if (current.state === 'judged') {
       clearAllTimers();
       startQuestion({ ...current, currentIndex: current.currentIndex + 1, showCircle: false });
+      return;
+    }
+
+    if (current.state === 'finished' && current.screen === 'game') {
+      clearAllTimers();
+      const nextGame = { ...current, screen: 'result', state: 'finished', showCircle: false, now: Date.now() };
+      gameRef.current = nextGame;
+      setGame(nextGame);
     }
   }
 
