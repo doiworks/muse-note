@@ -1134,55 +1134,67 @@ export default function HomePage() {
         .questionModes {
           display: grid;
           grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 10px;
+          gap: 12px;
         }
-        .questionModeBtn {
+        .questionModes .questionModeBtn,
+        .questionModes button.questionModeBtn {
           display: flex;
           flex-direction: column;
           align-items: flex-start;
-          justify-content: space-between;
+          justify-content: flex-start;
           flex: 1;
-          border: 1.5px solid #bfd5f1;
-          border-radius: 14px;
-          background: linear-gradient(180deg, #ffffff 0%, #f5faff 100%);
-          color: #37608f;
-          padding: 12px 12px 13px;
-          min-height: 94px;
+          width: 100%;
+          appearance: none;
+          -webkit-appearance: none;
+          border: 1px solid #b7d4f3;
+          border-radius: 16px;
+          background: linear-gradient(180deg, #ffffff 0%, #edf7ff 100%);
+          color: #245e94;
+          padding: 13px 14px 14px;
+          min-height: 96px;
           text-align: left;
           font: inherit;
-          line-height: 1.45;
+          line-height: 1.5;
           cursor: pointer;
+          box-shadow: 0 2px 8px rgba(83, 137, 194, 0.1);
           transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease,
             transform 0.14s ease;
         }
-        .questionModeBtn:hover {
-          background: #eef6ff;
-          border-color: #90b9e6;
-          box-shadow: 0 5px 12px rgba(109, 159, 218, 0.17);
+        .questionModes .questionModeBtn:hover,
+        .questionModes button.questionModeBtn:hover {
+          background: linear-gradient(180deg, #fafdff 0%, #e5f2ff 100%);
+          border-color: #78afe7;
+          box-shadow: 0 6px 14px rgba(84, 144, 209, 0.2);
         }
-        .questionModeBtn:active {
+        .questionModes .questionModeBtn:active,
+        .questionModes button.questionModeBtn:active {
           transform: translateY(1px);
-          box-shadow: 0 3px 8px rgba(109, 159, 218, 0.2);
+          box-shadow: 0 3px 9px rgba(84, 144, 209, 0.24);
         }
-        .questionModeBtn:focus-visible {
+        .questionModes .questionModeBtn:focus-visible,
+        .questionModes button.questionModeBtn:focus-visible {
           outline: none;
+          border-color: #3d95e5;
           box-shadow: 0 0 0 3px rgba(58, 147, 238, 0.36), 0 6px 14px rgba(76, 140, 215, 0.2);
         }
-        .questionModeBtn.active {
-          background: linear-gradient(180deg, #3ea4f0 0%, #2585d4 100%);
-          border-color: #1770bf;
+        .questionModes .questionModeBtn.active,
+        .questionModes button.questionModeBtn.active {
+          background: linear-gradient(180deg, #3daef8 0%, #1f8adb 100%);
+          border-color: #1172be;
           color: #ffffff;
-          box-shadow: 0 8px 16px rgba(37, 133, 212, 0.34), 0 0 0 2px rgba(205, 232, 255, 0.75) inset;
+          box-shadow: 0 9px 18px rgba(23, 119, 195, 0.42), 0 0 0 2px rgba(205, 232, 255, 0.68) inset;
         }
         .questionModeTitle {
+          display: block;
           font-weight: 800;
-          font-size: 1rem;
+          font-size: 1.03rem;
           letter-spacing: 0.01em;
         }
         .questionModeDescription {
+          display: block;
           margin-top: 6px;
-          font-size: 0.78rem;
-          color: #5f7fa5;
+          font-size: 0.8rem;
+          color: #4f739f;
         }
         .questionModeBtn.active .questionModeDescription {
           color: rgba(255, 255, 255, 0.93);
