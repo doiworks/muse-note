@@ -31,9 +31,9 @@ const MODE_TIMING = {
 };
 
 const QUESTION_MODE_OPTIONS = [
-  { key: 'balanced', label: 'まんべんなく', description: '全体をかたよりなく練習' },
-  { key: 'wrong', label: '間違い', description: '間違えた単語を復習' },
-  { key: 'select', label: '選択', description: '単語を選んで出題' }
+  { key: 'balanced', label: '通常' },
+  { key: 'wrong', label: '苦手' },
+  { key: 'select', label: '選択' }
 ];
 const MIN_CANDIDATE_FETCH = 50;
 const MAX_FETCH_LIMIT = 500;
@@ -756,13 +756,9 @@ export default function HomePage() {
                 aria-pressed={game.questionMode === option.key}
               >
                 <span className="quizMethodTitle">{option.label}</span>
-                <span className="quizMethodDescription">{option.description}</span>
               </button>
             ))}
           </div>
-        </div>
-        <div className="retryArea">
-          <input className="retryCount" type="number" min="1" value={game.countInput} onChange={(event) => setGame((prev) => ({ ...prev, countInput: event.target.value, errorMessage: '' }))} aria-label="出題数" placeholder="出題数（空=全件）" />
         </div>
       </>
     );
@@ -821,7 +817,6 @@ export default function HomePage() {
                 ログアウト
               </button>
             </div>
-            <p className="introText">日本語を見て、対応する英単語を入力しましょう。</p>
             <div className="inputRow">
               <input
                 className="nameInput"
@@ -832,9 +827,12 @@ export default function HomePage() {
               />
               <input
                 className="countInput"
+                type="number"
+                min="1"
                 value={game.countInput}
-                readOnly
-                placeholder="出題数は下で設定"
+                onChange={(event) => setGame((prev) => ({ ...prev, countInput: event.target.value, errorMessage: '' }))}
+                placeholder="出題数（空=全件）"
+                aria-label="出題数"
               />
             </div>
             {renderQuestionSettings()}
@@ -903,7 +901,7 @@ export default function HomePage() {
             {game.errorMessage && <p className="errorMessage">{game.errorMessage}</p>}
             {game.wrongModeFallbackAvailable && (
               <button type="button" className="backSettingBtn" onClick={handleStartNormalFallback}>
-                まんべんなくで始める
+                通常で始める
               </button>
             )}
           </div>
@@ -1024,7 +1022,7 @@ export default function HomePage() {
               </button>
               {game.wrongModeFallbackAvailable && (
                 <button type="button" className="backSettingBtn" onClick={handleStartNormalFallback}>
-                  まんべんなくで始める
+                  通常で始める
                 </button>
               )}
             </div>
@@ -1106,6 +1104,7 @@ export default function HomePage() {
         .inputRow {
           display: flex;
           gap: 10px;
+          margin-top: 0.6rem;
         }
 
         .nameInput,
@@ -1115,18 +1114,18 @@ export default function HomePage() {
           border: 2px solid #d0dbf1;
           border-radius: 12px;
           font-size: 1.1rem;
-          margin-top: 10px;
+          margin-top: 0;
           background: #ffffff;
           color: #4f6b94;
         }
 
         .modeButtons {
-          margin-top: 1rem;
+          margin-top: 0.5rem;
           display: flex;
           gap: 10px;
         }
         .sectionLabel {
-          margin: 1rem 0 0.3rem;
+          margin: 0.9rem 0 0.35rem;
           font-weight: 700;
           color: #5a7498;
           text-align: left;
@@ -1134,7 +1133,7 @@ export default function HomePage() {
         .questionModes {
           display: grid;
           grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 12px;
+          gap: 10px;
         }
         .selectArea {
           margin-top: 0.8rem;
@@ -1286,7 +1285,7 @@ export default function HomePage() {
 
         .answerInput {
           width: min(100%, 340px);
-          margin-top: 10px;
+          margin-top: 0;
           font-size: 1.4rem;
           padding: 0.4em 0.2em;
           border: none;
@@ -1717,78 +1716,61 @@ export default function HomePage() {
         .questionModes {
           display: grid;
           grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 12px;
+          gap: 10px;
         }
 
         button.quizMethodCard {
-          display: flex;
-          flex-direction: column;
-          align-items: flex-start;
-          justify-content: flex-start;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
           width: 100%;
           appearance: none;
           -webkit-appearance: none;
           -moz-appearance: none;
-          border: 1px solid #b7d4f3;
-          text-decoration: none;
+          border: 1px solid #c8daf1;
           margin: 0;
-          border-radius: 16px;
-          background: linear-gradient(180deg, #ffffff 0%, #edf7ff 100%);
-          color: #245e94;
-          padding: 13px 14px 14px;
-          min-height: 96px;
-          text-align: left;
+          border-radius: 12px;
+          background: #eef5ff;
+          color: #4a6f98;
+          padding: 0.72em 0.5em;
+          min-height: 44px;
+          text-align: center;
           font: inherit;
-          line-height: 1.5;
+          font-size: 0.98rem;
+          font-weight: 700;
+          line-height: 1.2;
           cursor: pointer;
-          box-shadow: 0 2px 8px rgba(83, 137, 194, 0.1);
-          transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease,
-            transform 0.14s ease;
+          transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
         }
         button.quizMethodCard:hover {
-          background: linear-gradient(180deg, #fafdff 0%, #e5f2ff 100%);
-          border-color: #78afe7;
-          box-shadow: 0 6px 14px rgba(84, 144, 209, 0.2);
-        }
-        button.quizMethodCard:active {
-          transform: translateY(1px);
-          box-shadow: 0 3px 9px rgba(84, 144, 209, 0.24);
+          background: #e7f1ff;
+          border-color: #98c0ea;
         }
         button.quizMethodCard:focus-visible {
           outline: none;
-          border-color: #3d95e5;
-          box-shadow: 0 0 0 3px rgba(58, 147, 238, 0.36), 0 6px 14px rgba(76, 140, 215, 0.2);
+          border-color: #5a9ce0;
+          box-shadow: 0 0 0 3px rgba(107, 171, 235, 0.28);
         }
         button.quizMethodCard.quizMethodCardActive {
-          background: linear-gradient(180deg, #3daef8 0%, #1f8adb 100%);
-          border-color: #1172be;
+          background: #9fc6f3;
+          border-color: #7fb1e8;
           color: #ffffff;
-          box-shadow: 0 9px 18px rgba(23, 119, 195, 0.42), 0 0 0 2px rgba(205, 232, 255, 0.68) inset;
+          box-shadow: 0 4px 10px rgba(117, 167, 221, 0.35);
         }
         .quizMethodTitle {
           display: block;
-          font-weight: 800;
-          font-size: 1.03rem;
+          font-weight: 700;
+          font-size: 0.98rem;
           letter-spacing: 0.01em;
         }
-        .quizMethodDescription {
-          display: block;
-          margin-top: 6px;
-          font-size: 0.8rem;
-          color: #4f739f;
-        }
-        button.quizMethodCard.quizMethodCardActive .quizMethodDescription {
-          color: rgba(255, 255, 255, 0.93);
-        }
-
         @media (max-width: 600px) {
           .questionModes {
             grid-template-columns: 1fr;
             gap: 8px;
           }
           button.quizMethodCard {
-            min-height: 78px;
-            padding: 11px 12px;
+            min-height: 42px;
+            padding: 0.66em 0.5em;
           }
         }
       `}</style>
