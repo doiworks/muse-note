@@ -741,11 +741,11 @@ export default function HomePage() {
     void handleStart(game.mode || 'normal', null, 'balanced');
   }
 
-  function renderQuestionSettings() {
+  function renderQuestionSettings(compact = false) {
     return (
       <>
-        <div className="questionModeArea">
-          <p className="sectionLabel">出題方法</p>
+        <div className={`questionModeArea ${compact ? 'compact' : ''}`}>
+          {!compact && <p className="sectionLabel">出題方法</p>}
           <div className="questionModes">
             {QUESTION_MODE_OPTIONS.map((option) => (
               <button
@@ -976,8 +976,7 @@ export default function HomePage() {
 
         {game.screen === 'result' && (
           <div className="reviewScreen">
-            <h1>🎉 Complete! {game.answeredCount}問 終了しました。</h1>
-            <p className="scoreLine">正解 {game.correctCount}・誤答 {game.wrongCount}（正答率 {accuracy}%）</p>
+            <h1>{game.answeredCount}問終了</h1>
             <div className="resultStats">
               <div><strong>{game.correctCount}</strong><span>正解</span></div>
               <div><strong>{game.wrongCount}</strong><span>誤答</span></div>
@@ -1008,18 +1007,18 @@ export default function HomePage() {
             </div>
             <div className="retryPanel">
               <p className="sectionLabel">出題設定</p>
-              {renderQuestionSettings()}
+              {renderQuestionSettings(true)}
               <div className="retryActions">
-                <button className="retryBtn" type="button" onClick={handleRetry} disabled={game.isLoading}>
-                  {game.isLoading ? '読み込み中...' : '同じ設定で次へ'}
+                <button className="retryBtn primary" type="button" onClick={handleRetry} disabled={game.isLoading}>
+                  {game.isLoading ? '読み込み中...' : '次の問題へ'}
                 </button>
                 <button className="retryBtn secondary" type="button" onClick={handleRetrySameWords}>
-                  同じ問題でもう一度
+                  もう一度
+                </button>
+                <button className="retryBtn tertiary" type="button" onClick={() => setGame((prev) => ({ ...prev, screen: 'intro', state: 'idle' }))}>
+                  設定
                 </button>
               </div>
-              <button className="backSettingBtn" type="button" onClick={() => setGame((prev) => ({ ...prev, screen: 'intro', state: 'idle' }))}>
-                設定に戻る
-              </button>
               {game.wrongModeFallbackAvailable && (
                 <button type="button" className="backSettingBtn" onClick={handleStartNormalFallback}>
                   通常で始める
@@ -1431,25 +1430,18 @@ export default function HomePage() {
           letter-spacing: 0.01em;
         }
 
-        .scoreLine {
-          text-align: center;
-          margin: 0 0 0.85rem;
-          color: #6a7d98;
-          font-size: 0.96rem;
-        }
-
         .resultStats {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
-          gap: 8px;
-          margin: 0.8rem 0 0.9rem;
+          gap: 6px;
+          margin: 0.5rem 0 0.9rem;
         }
 
         .resultStats div {
           background: #f8fbff;
           border: 1px solid #e8eef9;
-          border-radius: 14px;
-          padding: 0.65rem 0.4rem;
+          border-radius: 12px;
+          padding: 0.5rem 0.4rem;
           text-align: center;
         }
 
@@ -1459,8 +1451,8 @@ export default function HomePage() {
         }
 
         .resultStats strong {
-          font-size: 1.28rem;
-          color: #2e7d32;
+          font-size: 1.15rem;
+          color: #3e6998;
         }
 
         .resultStats span {
@@ -1573,6 +1565,24 @@ export default function HomePage() {
         .retryPanel {
           margin-top: 12px;
         }
+        .questionModeArea.compact .questionModes {
+          gap: 8px;
+        }
+        .questionModeArea.compact :global(button.quizMethodCard) {
+          min-height: 38px;
+          padding: 0.45em 0.5em;
+          border-radius: 10px;
+          font-size: 0.9rem;
+          font-weight: 600;
+          background: #f4f8ff;
+          border-color: #d5e3f6;
+          box-shadow: none;
+        }
+        .questionModeArea.compact :global(button.quizMethodCard.quizMethodCardActive) {
+          background: #9fc6f3;
+          border-color: #7fb1e8;
+          color: #fff;
+        }
         .resultModes {
           margin-bottom: 10px;
         }
@@ -1600,12 +1610,31 @@ export default function HomePage() {
           background: #f8fbff;
           color: #4f6b94;
           border-radius: 10px;
-          padding: 0.6em;
+          padding: 0.7em 1em;
         }
         .retryBtn {
-          font-size: 1.05rem;
-          padding: 0.6em 1.2em;
+          font-size: 0.98rem;
+          padding: 0.7em 1em;
           border-radius: 10px;
+        }
+        .retryActions {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 8px;
+          margin-top: 8px;
+        }
+        .retryBtn.primary {
+          grid-column: 1 / -1;
+          font-size: 1.08rem;
+          font-weight: 700;
+          min-height: 46px;
+        }
+        .retryBtn.secondary,
+        .retryBtn.tertiary {
+          border: 1px solid #c7d8f0;
+          background: #f8fbff;
+          color: #4f6b94;
+          box-shadow: none;
         }
 
         .errorMessage {
