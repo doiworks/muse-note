@@ -468,9 +468,10 @@ export default function HomePage() {
     }
   }
 
-  async function handleStart(mode, selectedWords = null, forcedQuestionMode = null) {
+  async function handleStart(selectedWords = null, forcedQuestionMode = null) {
     const current = gameRef.current;
     const activeQuestionMode = forcedQuestionMode || current.questionMode;
+    const mode = current.mode || 'normal';
     const userName = current.userName.trim();
     if (!userName) {
       setGame((prev) => ({ ...prev, errorMessage: 'ユーザー名を入力してください。' }));
@@ -666,7 +667,7 @@ export default function HomePage() {
     const current = gameRef.current;
     if (current.isLoading) return;
     const requestedCount = Number(current.countInput);
-    const safeRequestedCount = Number.isFinite(requestedCount) && requestedCount > 0 ? Math.floor(requestedCount) : current.targetCount;
+    const safeRequestedCount = Number.isFinite(requestedCount) && requestedCount > 0 ? Math.floor(requestedCount) : 0;
     setGame((prev) => ({ ...prev, isLoading: true, errorMessage: '' }));
     try {
       const selectedWords = current.selectableWords.filter((word) => current.selectedWordIds.includes(word.id));
@@ -738,7 +739,7 @@ export default function HomePage() {
 
   function handleStartNormalFallback() {
     if (game.questionMode === 'select') return;
-    void handleStart(game.mode || 'normal', null, 'balanced');
+    void handleStart(null, 'balanced');
   }
 
   function renderQuestionSettings(compact = false) {
@@ -775,13 +776,13 @@ export default function HomePage() {
     });
   }
 
-  function handleStartSelected(mode) {
+  function handleStartSelected() {
     if (!game.selectedWordIds.length) {
       setGame((prev) => ({ ...prev, errorMessage: '単語を1つ以上選択してください。' }));
       return;
     }
     const selectedWords = game.selectableWords.filter((word) => game.selectedWordIds.includes(word.id));
-    void handleStart(mode, selectedWords, 'select');
+    void handleStart(selectedWords, 'select');
   }
 
   function setFilterValue(key, value) {
@@ -891,13 +892,21 @@ export default function HomePage() {
                   className={`modeBtn ${game.mode === mode ? 'active' : ''}`}
                   disabled={game.isLoading}
                   key={mode}
-                  onClick={() => (game.questionMode === 'select' ? handleStartSelected(mode) : handleStart(mode))}
+                  onClick={() => setGame((prev) => ({ ...prev, mode, errorMessage: '' }))}
                   type="button"
                 >
-                  {game.isLoading && game.mode === mode ? '読み込み中...' : game.questionMode === 'select' ? `${setting.label}で選択した単語で開始` : setting.label}
+                  {setting.label}
                 </button>
               ))}
             </div>
+            <button
+              type="button"
+              className="retryBtn primary"
+              disabled={game.isLoading}
+              onClick={() => (game.questionMode === 'select' ? handleStartSelected() : handleStart())}
+            >
+              {game.isLoading ? '読み込み中...' : '開始'}
+            </button>
             {game.errorMessage && <p className="errorMessage">{game.errorMessage}</p>}
             {game.wrongModeFallbackAvailable && (
               <button type="button" className="backSettingBtn" onClick={handleStartNormalFallback}>
@@ -1007,7 +1016,31 @@ export default function HomePage() {
             </div>
             <div className="retryPanel">
               <p className="sectionLabel">出題設定</p>
+              <div className="inputRow">
+                <input
+                  className="countInput"
+                  type="number"
+                  min="1"
+                  value={game.countInput}
+                  onChange={(event) => setGame((prev) => ({ ...prev, countInput: event.target.value, errorMessage: '' }))}
+                  placeholder="出題数（空=全件）"
+                  aria-label="出題数"
+                />
+              </div>
               {renderQuestionSettings(true)}
+              <div className="modeButtons" aria-label="スピードモード選択">
+                {Object.entries(MODE_TIMING).map(([mode, setting]) => (
+                  <button
+                    className={`modeBtn ${game.mode === mode ? 'active' : ''}`}
+                    disabled={game.isLoading}
+                    key={mode}
+                    onClick={() => setGame((prev) => ({ ...prev, mode, errorMessage: '' }))}
+                    type="button"
+                  >
+                    {setting.label}
+                  </button>
+                ))}
+              </div>
               <div className="retryActions">
                 <button className="retryBtn primary" type="button" onClick={handleRetry} disabled={game.isLoading}>
                   {game.isLoading ? '読み込み中...' : '次の問題へ'}
