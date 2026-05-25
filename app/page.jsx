@@ -48,6 +48,11 @@ const INITIAL_GAME = {
   words: [],
   selectableWords: [],
   selectedWordIds: [],
+  wordSets: [],
+  selectedWordSetId: '',
+  selectedWordSetName: '',
+  newWordSetName: '',
+  wordSetMessage: '',
   wordSearch: '',
   filters: {
     school_level: '',
@@ -459,13 +464,23 @@ export default function HomePage() {
       gameRef.current = next;
       return next;
     });
-    if (questionMode !== 'select' || game.selectableWords.length) return;
+    if (questionMode !== 'select') return;
     try {
-      const words = await fetchWords(null, questionMode);
-      setGame((prev) => ({ ...prev, selectableWords: words }));
+      const [words, sets] = await Promise.all([
+        game.selectableWords.length ? Promise.resolve(game.selectableWords) : fetchWords(null, questionMode),
+        fetchWordSets()
+      ]);
+      setGame((prev) => ({ ...prev, selectableWords: words, wordSets: sets }));
     } catch (error) {
       setGame((prev) => ({ ...prev, errorMessage: error.message }));
     }
+  }
+
+  async function fetchWordSets() {
+    const response = await fetch('/api/word-sets');
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || '保存セットの取得に失敗しました。');
+    return data.word_sets || [];
   }
 
   async function handleStart(selectedWords = null, forcedQuestionMode = null) {
@@ -511,6 +526,10 @@ export default function HomePage() {
         words,
         selectableWords: current.selectableWords,
         selectedWordIds: current.selectedWordIds,
+        wordSets: current.wordSets,
+        selectedWordSetId: current.selectedWordSetId,
+        selectedWordSetName: current.selectedWordSetName,
+        newWordSetName: current.newWordSetName,
         wordSearch: current.wordSearch,
         filters: current.filters,
         quizWords,
@@ -698,6 +717,10 @@ export default function HomePage() {
         words,
         selectableWords: current.selectableWords,
         selectedWordIds: current.selectedWordIds,
+        wordSets: current.wordSets,
+        selectedWordSetId: current.selectedWordSetId,
+        selectedWordSetName: current.selectedWordSetName,
+        newWordSetName: current.newWordSetName,
         wordSearch: current.wordSearch,
         filters: current.filters,
         quizWords,
@@ -728,6 +751,10 @@ export default function HomePage() {
       words: current.words,
       selectableWords: current.selectableWords,
       selectedWordIds: current.selectedWordIds,
+      wordSets: current.wordSets,
+      selectedWordSetId: current.selectedWordSetId,
+      selectedWordSetName: current.selectedWordSetName,
+      newWordSetName: current.newWordSetName,
       wordSearch: current.wordSearch,
       filters: current.filters,
       quizWords: current.quizWords,
@@ -783,6 +810,58 @@ export default function HomePage() {
     }
     const selectedWords = game.selectableWords.filter((word) => game.selectedWordIds.includes(word.id));
     void handleStart(selectedWords, 'select');
+  }
+
+  async function handleSaveWordSet() {
+    if (!game.selectedWordIds.length) {
+      setGame((prev) => ({ ...prev, wordSetMessage: '保存する単語を1つ以上選択してください。' }));
+      return;
+    }
+    const name = game.newWordSetName.trim();
+    if (!name) {
+      setGame((prev) => ({ ...prev, wordSetMessage: 'セット名を入力してください。' }));
+      return;
+    }
+    try {
+      const response = await fetch('/api/word-sets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, word_ids: game.selectedWordIds })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || '保存に失敗しました。');
+      const sets = await fetchWordSets();
+      setGame((prev) => ({ ...prev, wordSets: sets, wordSetMessage: '保存しました' }));
+    } catch (error) {
+      setGame((prev) => ({ ...prev, wordSetMessage: error.message || '保存に失敗しました。' }));
+    }
+  }
+
+  async function handleStartFromWordSet(wordSetId) {
+    try {
+      const response = await fetch(`/api/word-sets/${wordSetId}`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'セットの取得に失敗しました。');
+      const words = data.words || [];
+      if (!words.length) throw new Error('このセットには出題可能な単語がありません。');
+      const selectedWordSet = game.wordSets.find((setItem) => setItem.id === wordSetId);
+      setGame((prev) => ({ ...prev, selectedWordSetId: wordSetId, selectedWordSetName: selectedWordSet?.name || '' }));
+      void handleStart(words, 'select');
+    } catch (error) {
+      setGame((prev) => ({ ...prev, errorMessage: error.message || '保存セットの出題開始に失敗しました。' }));
+    }
+  }
+
+  async function handleDeleteWordSet(wordSetId) {
+    try {
+      const response = await fetch(`/api/word-sets/${wordSetId}`, { method: 'DELETE' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || '削除に失敗しました。');
+      const sets = await fetchWordSets();
+      setGame((prev) => ({ ...prev, wordSets: sets, wordSetMessage: '削除しました' }));
+    } catch (error) {
+      setGame((prev) => ({ ...prev, wordSetMessage: error.message || '削除に失敗しました。' }));
+    }
   }
 
   function setFilterValue(key, value) {
@@ -854,10 +933,33 @@ export default function HomePage() {
                 </div>
                 <p className="selectedCount">選択数: {game.selectedWordIds.length}件 / 表示中: {filteredWords.length}件</p>
                 <div className="bulkRow">
+                  <input
+                    className="nameInput"
+                    value={game.newWordSetName}
+                    onChange={(event) => setGame((prev) => ({ ...prev, newWordSetName: event.target.value, wordSetMessage: '' }))}
+                    placeholder="保存セット名（例: 1学期期末）"
+                  />
+                  <button type="button" onClick={() => void handleSaveWordSet()}>セットとして保存</button>
+                </div>
+                {game.wordSetMessage && <p className="statsLine">{game.wordSetMessage}</p>}
+                <div className="bulkRow">
                   <button type="button" onClick={() => selectVisible(true)}>表示中をすべて選択</button>
                   <button type="button" onClick={() => selectVisible(false)}>表示中をすべて解除</button>
                   <button type="button" onClick={() => selectAll(true)}>すべて選択</button>
                   <button type="button" onClick={() => selectAll(false)}>すべて解除</button>
+                </div>
+                <div className="wordSetList">
+                  <p className="sectionLabel">保存済みセット</p>
+                  {game.wordSets.map((setItem) => (
+                    <div key={setItem.id} className="wordSetRow">
+                      <span>{setItem.name}（{setItem.word_count}語）</span>
+                      <div className="bulkRow">
+                        <button type="button" onClick={() => void handleStartFromWordSet(setItem.id)}>このセットで出題</button>
+                        <button type="button" onClick={() => void handleDeleteWordSet(setItem.id)}>削除</button>
+                      </div>
+                    </div>
+                  ))}
+                  {!game.wordSets.length && <p className="mini">保存済みセットはまだありません。</p>}
                 </div>
                 <div className="wordList">
                   {filteredWords.map((word) => {
