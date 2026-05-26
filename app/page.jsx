@@ -53,6 +53,7 @@ const INITIAL_GAME = {
   selectedWordSetName: '',
   newWordSetName: '',
   wordSetMessage: '',
+  isWordPickerOpen: false,
   wordSearch: '',
   filters: {
     school_level: '',
@@ -918,73 +919,10 @@ export default function HomePage() {
             {renderQuestionSettings()}
             {game.questionMode === 'select' && (
               <div className="selectArea">
-                <input className="searchInput" placeholder="検索: english / japanese / phonetic / example / 品詞 / カテゴリ" value={game.wordSearch} onChange={(event) => setGame((prev) => ({ ...prev, wordSearch: event.target.value }))} />
-                <div className="filterGrid">
-                  {['school_level','grade','term','exam_type','category1','category2','category3'].map((key) => (
-                    <select key={key} className="filterSelect" value={game.filters[key]} onChange={(event) => setFilterValue(key, event.target.value)}>
-                      <option value="">{key}</option>
-                      {(filterOptions[key] || []).map((value) => <option key={value} value={value}>{value}</option>)}
-                    </select>
-                  ))}
-                </div>
-                <div className="toggleRow">
-                  <label><input type="checkbox" checked={game.filters.importantOnly} onChange={(event) => setFilterValue('importantOnly', event.target.checked)} /> 重要のみ</label>
-                  <label><input type="checkbox" checked={game.filters.selectedOnly} onChange={(event) => setFilterValue('selectedOnly', event.target.checked)} /> 選択済みだけ表示</label>
-                </div>
-                <p className="selectedCount">選択数: {game.selectedWordIds.length}件 / 表示中: {filteredWords.length}件</p>
-                <div className="bulkRow">
-                  <input
-                    className="nameInput"
-                    value={game.newWordSetName}
-                    onChange={(event) => setGame((prev) => ({ ...prev, newWordSetName: event.target.value, wordSetMessage: '' }))}
-                    placeholder="保存セット名（例: 1学期期末）"
-                  />
-                  <button type="button" onClick={() => void handleSaveWordSet()}>セットとして保存</button>
-                </div>
-                {game.wordSetMessage && <p className="statsLine">{game.wordSetMessage}</p>}
-                <div className="bulkRow">
-                  <button type="button" onClick={() => selectVisible(true)}>表示中をすべて選択</button>
-                  <button type="button" onClick={() => selectVisible(false)}>表示中をすべて解除</button>
-                  <button type="button" onClick={() => selectAll(true)}>すべて選択</button>
-                  <button type="button" onClick={() => selectAll(false)}>すべて解除</button>
-                </div>
-                <div className="wordSetList">
-                  <p className="sectionLabel">保存済みセット</p>
-                  {game.wordSets.map((setItem) => (
-                    <div key={setItem.id} className="wordSetRow">
-                      <span>{setItem.name}（{setItem.word_count}語）</span>
-                      <div className="bulkRow">
-                        <button type="button" onClick={() => void handleStartFromWordSet(setItem.id)}>このセットで出題</button>
-                        <button type="button" onClick={() => void handleDeleteWordSet(setItem.id)}>削除</button>
-                      </div>
-                    </div>
-                  ))}
-                  {!game.wordSets.length && <p className="mini">保存済みセットはまだありません。</p>}
-                </div>
-                <div className="wordList">
-                  {filteredWords.map((word) => {
-                    const selected = game.selectedWordIds.includes(word.id);
-                    const isImportant = isImportantWord(word);
-                    const stats = word.stats;
-                    return (
-                      <button type="button" key={word.id} className={`wordItem ${selected ? 'selected' : ''}`} onClick={() => toggleSelectedWord(word.id)}>
-                        <div className="wordMain">
-                          <div><strong>{word.english}</strong> / {word.japanese} {word.phonetic ? <span className="mini">{word.phonetic}</span> : null}</div>
-                          <div className="badgeRow">
-                            {word.grade ? <span className="miniBadge">G{word.grade}</span> : null}
-                            {word.term ? <span className="miniBadge">T{word.term}</span> : null}
-                            {word.category1 ? <span className="miniBadge">{word.category1}</span> : null}
-                            {word.category2 ? <span className="miniBadge">{word.category2}</span> : null}
-                            {word.category3 ? <span className="miniBadge">{word.category3}</span> : null}
-                            {isImportant ? <span className="importantBadge">重要</span> : null}
-                          </div>
-                          <div className="statsLine">{stats ? `正答率 ${Math.round(Number(stats.accuracy || 0))}% / 回答 ${stats.attempt_count} / 正 ${stats.success_count} / 誤 ${stats.mistake_count}` : '未出題'}</div>
-                        </div>
-                        <span className="speakerBtn" onClick={(event) => { event.stopPropagation(); speak(word.english); }} role="button" aria-label={`${word.english}を発音`} tabIndex={0}>🔊</span>
-                      </button>
-                    );
-                  })}
-                </div>
+                <p className="selectedCount">選択中：{game.selectedWordIds.length}語</p>
+                <button type="button" className="openWordModalBtn" onClick={() => setGame((prev) => ({ ...prev, isWordPickerOpen: true }))}>
+                  単語を選ぶ
+                </button>
               </div>
             )}
             <p className="sectionLabel">出題スピード</p>
@@ -1163,6 +1101,63 @@ export default function HomePage() {
           </div>
         )}
       </section>
+      {game.screen === 'intro' && game.questionMode === 'select' && game.isWordPickerOpen && (
+        <div className="modalOverlay" role="dialog" aria-modal="true" aria-label="単語を選ぶ">
+          <div className="wordPickerModal">
+            <div className="wordPickerHeader">
+              <h2>単語を選ぶ</h2>
+              <button type="button" onClick={() => setGame((prev) => ({ ...prev, isWordPickerOpen: false }))}>閉じる</button>
+            </div>
+            <input className="searchInput" placeholder="検索: english / japanese / phonetic / example / 品詞 / カテゴリ" value={game.wordSearch} onChange={(event) => setGame((prev) => ({ ...prev, wordSearch: event.target.value }))} />
+            <div className="filterGrid">
+              {['school_level','grade','term','exam_type','category1','category2','category3'].map((key) => (
+                <select key={key} className="filterSelect" value={game.filters[key]} onChange={(event) => setFilterValue(key, event.target.value)}>
+                  <option value="">{key}</option>
+                  {(filterOptions[key] || []).map((value) => <option key={value} value={value}>{value}</option>)}
+                </select>
+              ))}
+            </div>
+            <div className="toggleRow">
+              <label><input type="checkbox" checked={game.filters.importantOnly} onChange={(event) => setFilterValue('importantOnly', event.target.checked)} /> 重要のみ</label>
+              <label><input type="checkbox" checked={game.filters.selectedOnly} onChange={(event) => setFilterValue('selectedOnly', event.target.checked)} /> 選択済みだけ表示</label>
+            </div>
+            <p className="selectedCount">選択数: {game.selectedWordIds.length}件 / 表示中: {filteredWords.length}件</p>
+            <div className="bulkRow">
+              <button type="button" onClick={() => selectVisible(true)}>表示中をすべて選択</button>
+              <button type="button" onClick={() => selectVisible(false)}>表示中をすべて解除</button>
+              <button type="button" onClick={() => selectAll(true)}>すべて選択</button>
+              <button type="button" onClick={() => selectAll(false)}>すべて解除</button>
+            </div>
+            <div className="wordList inModal">
+              {filteredWords.map((word) => {
+                const selected = game.selectedWordIds.includes(word.id);
+                const isImportant = isImportantWord(word);
+                const stats = word.stats;
+                return (
+                  <button type="button" key={word.id} className={`wordItem ${selected ? 'selected' : ''}`} onClick={() => toggleSelectedWord(word.id)}>
+                    <div className="wordMain">
+                      <div><strong>{word.english}</strong> / {word.japanese} {word.phonetic ? <span className="mini">{word.phonetic}</span> : null}</div>
+                      <div className="badgeRow">
+                        {word.grade ? <span className="miniBadge">G{word.grade}</span> : null}
+                        {word.term ? <span className="miniBadge">T{word.term}</span> : null}
+                        {word.category1 ? <span className="miniBadge">{word.category1}</span> : null}
+                        {word.category2 ? <span className="miniBadge">{word.category2}</span> : null}
+                        {word.category3 ? <span className="miniBadge">{word.category3}</span> : null}
+                        {isImportant ? <span className="importantBadge">重要</span> : null}
+                      </div>
+                      <div className="statsLine">{stats ? `正答率 ${Math.round(Number(stats.accuracy || 0))}% / 回答 ${stats.attempt_count} / 正 ${stats.success_count} / 誤 ${stats.mistake_count}` : '未出題'}</div>
+                    </div>
+                    <span className="speakerBtn" onClick={(event) => { event.stopPropagation(); speak(word.english); }} role="button" aria-label={`${word.english}を発音`} tabIndex={0}>🔊</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="modalFooter">
+              <button type="button" className="retryBtn primary" onClick={() => setGame((prev) => ({ ...prev, isWordPickerOpen: false }))}>決定</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style jsx>{`
         :global(*) {
@@ -1273,6 +1268,14 @@ export default function HomePage() {
           margin-top: 0.8rem;
           text-align: left;
         }
+        .openWordModalBtn {
+          border: 1px solid #c7d8f0;
+          border-radius: 10px;
+          background: #f8fbff;
+          padding: 0.6em 0.8em;
+          color: #486287;
+          font-weight: 600;
+        }
         .searchInput {
           width: 100%;
           padding: 0.7em;
@@ -1343,6 +1346,46 @@ export default function HomePage() {
         .mini { font-size: 0.8rem; color: #6a7f9f; }
         .statsLine { font-size: 0.75rem; margin-top: 4px; color: #4f6b94; }
         .speakerBtn { font-size: 1.1rem; padding: 8px; margin-left: 6px; }
+        .modalOverlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(20, 36, 60, 0.35);
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          padding: 8px;
+          z-index: 1000;
+        }
+        .wordPickerModal {
+          width: min(980px, 100%);
+          height: min(92vh, 100%);
+          background: #fff;
+          border-radius: 16px;
+          padding: 14px;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .wordPickerHeader {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 8px;
+        }
+        .wordPickerHeader h2 {
+          margin: 0;
+          color: #4f6b94;
+          font-size: 1.2rem;
+        }
+        .wordList.inModal {
+          flex: 1;
+          max-height: none;
+          min-height: 0;
+        }
+        .modalFooter {
+          display: flex;
+          justify-content: flex-end;
+        }
 
         .modeBtn,
         .answerBtn,
