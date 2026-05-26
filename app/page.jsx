@@ -174,6 +174,11 @@ export default function HomePage() {
     return matchesFilters;
   }), [game.selectableWords, game.wordSearch, game.filters, game.selectedWordIds]);
 
+  const selectedCount = game.selectedWordIds.length;
+  const selectedOnlyDisabled = selectedCount === 0;
+  const onlyImportantAndSelectedActive = game.filters.importantOnly && game.filters.selectedOnly;
+  const shouldShowWordListEmptyState = filteredWords.length === 0;
+
 
   useEffect(() => {
     gameRef.current = game;
@@ -479,7 +484,7 @@ export default function HomePage() {
       const sets = await fetchWordSets();
       setGame((prev) => ({ ...prev, wordSets: sets, wordSetFetchError: '' }));
     } catch (error) {
-      setGame((prev) => ({ ...prev, wordSetFetchError: error.message || '保存セットの取得に失敗しました。' }));
+      setGame((prev) => ({ ...prev, wordSetFetchError: error.message || '保存済みセットを読み込めませんでした。' }));
     }
   }
 
@@ -884,12 +889,17 @@ export default function HomePage() {
       const sets = await fetchWordSets();
       setGame((prev) => ({ ...prev, wordSets: sets, wordSetFetchError: '' }));
     } catch (error) {
-      setGame((prev) => ({ ...prev, wordSetFetchError: error.message || '保存セットの取得に失敗しました。' }));
+      setGame((prev) => ({ ...prev, wordSetFetchError: error.message || '保存済みセットを読み込めませんでした。' }));
     }
   }
 
   function setFilterValue(key, value) {
-    setGame((prev) => ({ ...prev, filters: { ...prev.filters, [key]: value } }));
+    setGame((prev) => {
+      if (key === 'selectedOnly' && value && prev.selectedWordIds.length === 0) {
+        return prev;
+      }
+      return { ...prev, filters: { ...prev.filters, [key]: value } };
+    });
   }
 
   function selectVisible(shouldSelect) {
@@ -1142,9 +1152,23 @@ export default function HomePage() {
             </div>
             <div className="toggleRow">
               <label><input type="checkbox" checked={game.filters.importantOnly} onChange={(event) => setFilterValue('importantOnly', event.target.checked)} /> 重要のみ</label>
-              <label><input type="checkbox" checked={game.filters.selectedOnly} onChange={(event) => setFilterValue('selectedOnly', event.target.checked)} /> 選択済みだけ表示</label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={game.filters.selectedOnly}
+                  disabled={selectedOnlyDisabled}
+                  onChange={(event) => setFilterValue('selectedOnly', event.target.checked)}
+                />{' '}
+                選択済みだけ表示
+              </label>
             </div>
-            <p className="selectedCount">選択数: {game.selectedWordIds.length}件 / 表示中: {filteredWords.length}件</p>
+            <p className="selectedCount">選択数: {selectedCount}件 / 表示中: {filteredWords.length}件</p>
+            {selectedOnlyDisabled && (
+              <p className="wordListHint">まだ選択された単語はありません</p>
+            )}
+            {onlyImportantAndSelectedActive && shouldShowWordListEmptyState && (
+              <p className="wordListHint">「重要のみ」と「選択済みだけ表示」の条件に合う単語がありません</p>
+            )}
             <div className="bulkRow">
               <button type="button" onClick={() => selectVisible(true)}>表示中をすべて選択</button>
               <button type="button" onClick={() => selectVisible(false)}>表示中をすべて解除</button>
@@ -1152,6 +1176,12 @@ export default function HomePage() {
               <button type="button" onClick={() => selectAll(false)}>すべて解除</button>
             </div>
             <div className="wordList inModal">
+              {shouldShowWordListEmptyState && (
+                <div className="wordListEmpty">
+                  <p>条件に合う単語がありません</p>
+                  <p>フィルターを少し減らしてください</p>
+                </div>
+              )}
               {filteredWords.map((word) => {
                 const selected = game.selectedWordIds.includes(word.id);
                 const isImportant = isImportantWord(word);
@@ -1189,7 +1219,7 @@ export default function HomePage() {
                 </button>
               </div>
               {game.wordSetMessage && <p className={`wordSetMessage ${game.wordSetMessageType === 'error' ? 'error' : 'success'}`}>{game.wordSetMessage}</p>}
-              {game.wordSetFetchError && <p className="wordSetMessage error">{game.wordSetFetchError}</p>}
+              {game.wordSetFetchError && <p className="wordSetInlineNotice">保存済みセットを読み込めませんでした。単語選択はそのまま使えます。</p>}
               <div className="savedWordSets">
                 <p className="sectionLabel">保存済みセット</p>
                 {!game.wordSets.length ? (
@@ -1346,6 +1376,12 @@ export default function HomePage() {
           margin: 0.4rem 0;
           font-size: 0.9rem;
         }
+        .wordListHint {
+          margin: 0;
+          font-size: 0.82rem;
+          color: #5f789f;
+          text-align: left;
+        }
         .filterGrid {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1442,6 +1478,19 @@ export default function HomePage() {
           max-height: none;
           min-height: 0;
         }
+        .wordListEmpty {
+          padding: 18px 12px;
+          font-size: 0.86rem;
+          color: #5f789f;
+          text-align: center;
+          border: 1px dashed #d4def0;
+          border-radius: 10px;
+          margin: 4px 0 10px;
+          background: #f8fbff;
+        }
+        .wordListEmpty p {
+          margin: 4px 0;
+        }
         .modalFooter {
           display: flex;
           justify-content: flex-end;
@@ -1476,6 +1525,15 @@ export default function HomePage() {
         }
         .wordSetMessage.error {
           color: #c73e3e;
+        }
+        .wordSetInlineNotice {
+          margin: 8px 0;
+          font-size: 0.8rem;
+          color: #8a6d3b;
+          background: #fff8e8;
+          border: 1px solid #f2e3bd;
+          border-radius: 8px;
+          padding: 8px 10px;
         }
         .savedWordSets {
           margin-top: 6px;
