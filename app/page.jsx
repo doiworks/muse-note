@@ -467,13 +467,17 @@ export default function HomePage() {
     });
     if (questionMode !== 'select') return;
     try {
-      const [words, sets] = await Promise.all([
-        game.selectableWords.length ? Promise.resolve(game.selectableWords) : fetchWords(null, questionMode),
-        fetchWordSets()
-      ]);
-      setGame((prev) => ({ ...prev, selectableWords: words, wordSets: sets }));
+      const words = game.selectableWords.length ? game.selectableWords : await fetchWords(null, questionMode);
+      setGame((prev) => ({ ...prev, selectableWords: words }));
     } catch (error) {
       setGame((prev) => ({ ...prev, errorMessage: error.message }));
+      return;
+    }
+    try {
+      const sets = await fetchWordSets();
+      setGame((prev) => ({ ...prev, wordSets: sets }));
+    } catch (error) {
+      setGame((prev) => ({ ...prev, wordSetMessage: error.message || '保存セットの取得に失敗しました。' }));
     }
   }
 
@@ -865,6 +869,8 @@ export default function HomePage() {
     }
   }
 
+  const canSaveWordSet = game.selectedWordIds.length > 0 && game.newWordSetName.trim().length > 0;
+
   function setFilterValue(key, value) {
     setGame((prev) => ({ ...prev, filters: { ...prev.filters, [key]: value } }));
   }
@@ -1152,6 +1158,42 @@ export default function HomePage() {
                 );
               })}
             </div>
+            <div className="wordSetPanel">
+              <p className="sectionLabel">セットとして保存</p>
+              <div className="wordSetSaveRow">
+                <input
+                  className="wordSetInput"
+                  placeholder="セット名を入力"
+                  value={game.newWordSetName}
+                  onChange={(event) => setGame((prev) => ({ ...prev, newWordSetName: event.target.value, wordSetMessage: '' }))}
+                />
+                <button type="button" className="retryBtn secondaryAction" onClick={() => void handleSaveWordSet()} disabled={!canSaveWordSet}>
+                  セットとして保存
+                </button>
+              </div>
+              {game.wordSetMessage && <p className="wordSetMessage">{game.wordSetMessage}</p>}
+              <div className="savedWordSets">
+                <p className="sectionLabel">保存済みセット</p>
+                {!game.wordSets.length ? (
+                  <p className="emptyWordSets">保存済みセットはありません。</p>
+                ) : (
+                  <div className="savedWordSetList">
+                    {game.wordSets.map((setItem) => (
+                      <div key={setItem.id} className="savedWordSetItem">
+                        <div className="savedWordSetInfo">
+                          <strong>{setItem.name}</strong>
+                          <span>{setItem.word_count ?? 0}語</span>
+                        </div>
+                        <div className="savedWordSetActions">
+                          <button type="button" onClick={() => void handleStartFromWordSet(setItem.id)}>このセットで出題</button>
+                          <button type="button" onClick={() => void handleDeleteWordSet(setItem.id)}>削除</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
             <div className="modalFooter">
               <button type="button" className="retryBtn primary" onClick={() => setGame((prev) => ({ ...prev, isWordPickerOpen: false }))}>決定</button>
             </div>
@@ -1385,6 +1427,73 @@ export default function HomePage() {
         .modalFooter {
           display: flex;
           justify-content: flex-end;
+        }
+        .wordSetPanel {
+          border-top: 1px solid #e2eaf7;
+          padding-top: 8px;
+          text-align: left;
+        }
+        .wordSetSaveRow {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+        }
+        .wordSetInput {
+          flex: 1;
+          padding: 0.65em;
+          border: 1px solid #d0dbf1;
+          border-radius: 10px;
+          font-size: 0.95rem;
+        }
+        .secondaryAction {
+          padding: 0.65em 0.9em;
+          font-size: 0.85rem;
+        }
+        .wordSetMessage {
+          margin: 6px 0 0;
+          font-size: 0.85rem;
+        }
+        .savedWordSets {
+          margin-top: 6px;
+        }
+        .savedWordSetList {
+          max-height: 140px;
+          overflow: auto;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+        .savedWordSetItem {
+          border: 1px solid #d5e1f3;
+          border-radius: 8px;
+          padding: 7px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 10px;
+        }
+        .savedWordSetInfo {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          font-size: 0.85rem;
+        }
+        .savedWordSetActions {
+          display: flex;
+          gap: 6px;
+        }
+        .savedWordSetActions button {
+          border: 1px solid #c7d8f0;
+          border-radius: 8px;
+          background: #f8fbff;
+          padding: 0.35em 0.55em;
+          color: #486287;
+          font-size: 0.75rem;
+        }
+        .emptyWordSets {
+          margin: 4px 0 0;
+          color: #6a7f9f;
+          font-size: 0.85rem;
         }
 
         .modeBtn,
