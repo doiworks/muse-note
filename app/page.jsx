@@ -53,6 +53,8 @@ const INITIAL_GAME = {
   selectedWordSetName: '',
   newWordSetName: '',
   wordSetMessage: '',
+  wordSetMessageType: '',
+  wordSetFetchError: '',
   isWordPickerOpen: false,
   wordSearch: '',
   filters: {
@@ -475,9 +477,9 @@ export default function HomePage() {
     }
     try {
       const sets = await fetchWordSets();
-      setGame((prev) => ({ ...prev, wordSets: sets }));
+      setGame((prev) => ({ ...prev, wordSets: sets, wordSetFetchError: '' }));
     } catch (error) {
-      setGame((prev) => ({ ...prev, wordSetMessage: error.message || '保存セットの取得に失敗しました。' }));
+      setGame((prev) => ({ ...prev, wordSetFetchError: error.message || '保存セットの取得に失敗しました。' }));
     }
   }
 
@@ -536,6 +538,8 @@ export default function HomePage() {
         selectedWordSetName: current.selectedWordSetName,
         newWordSetName: current.newWordSetName,
         wordSearch: current.wordSearch,
+        wordSetMessageType: current.wordSetMessageType,
+        wordSetFetchError: current.wordSetFetchError,
         filters: current.filters,
         quizWords,
         targetCount,
@@ -727,6 +731,8 @@ export default function HomePage() {
         selectedWordSetName: current.selectedWordSetName,
         newWordSetName: current.newWordSetName,
         wordSearch: current.wordSearch,
+        wordSetMessageType: current.wordSetMessageType,
+        wordSetFetchError: current.wordSetFetchError,
         filters: current.filters,
         quizWords,
         targetCount,
@@ -819,12 +825,12 @@ export default function HomePage() {
 
   async function handleSaveWordSet() {
     if (!game.selectedWordIds.length) {
-      setGame((prev) => ({ ...prev, wordSetMessage: '保存する単語を1つ以上選択してください。' }));
+      setGame((prev) => ({ ...prev, wordSetMessage: '保存する単語を1つ以上選択してください。', wordSetMessageType: 'error' }));
       return;
     }
     const name = game.newWordSetName.trim();
     if (!name) {
-      setGame((prev) => ({ ...prev, wordSetMessage: 'セット名を入力してください。' }));
+      setGame((prev) => ({ ...prev, wordSetMessage: 'セット名を入力してください。', wordSetMessageType: 'error' }));
       return;
     }
     try {
@@ -836,9 +842,9 @@ export default function HomePage() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || '保存に失敗しました。');
       const sets = await fetchWordSets();
-      setGame((prev) => ({ ...prev, wordSets: sets, wordSetMessage: '保存しました' }));
+      setGame((prev) => ({ ...prev, wordSets: sets, newWordSetName: '', wordSetMessage: '保存しました', wordSetMessageType: 'success', wordSetFetchError: '' }));
     } catch (error) {
-      setGame((prev) => ({ ...prev, wordSetMessage: error.message || '保存に失敗しました。' }));
+      setGame((prev) => ({ ...prev, wordSetMessage: error.message || '保存に失敗しました。', wordSetMessageType: 'error' }));
     }
   }
 
@@ -863,13 +869,24 @@ export default function HomePage() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || '削除に失敗しました。');
       const sets = await fetchWordSets();
-      setGame((prev) => ({ ...prev, wordSets: sets, wordSetMessage: '削除しました' }));
+      setGame((prev) => ({ ...prev, wordSets: sets, wordSetMessage: '削除しました', wordSetMessageType: 'success', wordSetFetchError: '' }));
     } catch (error) {
-      setGame((prev) => ({ ...prev, wordSetMessage: error.message || '削除に失敗しました。' }));
+      setGame((prev) => ({ ...prev, wordSetMessage: error.message || '削除に失敗しました。', wordSetMessageType: 'error' }));
     }
   }
 
   const canSaveWordSet = game.selectedWordIds.length > 0 && game.newWordSetName.trim().length > 0;
+
+
+  async function openWordPicker() {
+    setGame((prev) => ({ ...prev, isWordPickerOpen: true, wordSetMessage: '', wordSetMessageType: '' }));
+    try {
+      const sets = await fetchWordSets();
+      setGame((prev) => ({ ...prev, wordSets: sets, wordSetFetchError: '' }));
+    } catch (error) {
+      setGame((prev) => ({ ...prev, wordSetFetchError: error.message || '保存セットの取得に失敗しました。' }));
+    }
+  }
 
   function setFilterValue(key, value) {
     setGame((prev) => ({ ...prev, filters: { ...prev.filters, [key]: value } }));
@@ -926,7 +943,7 @@ export default function HomePage() {
             {game.questionMode === 'select' && (
               <div className="selectArea">
                 <p className="selectedCount">選択中：{game.selectedWordIds.length}語</p>
-                <button type="button" className="openWordModalBtn" onClick={() => setGame((prev) => ({ ...prev, isWordPickerOpen: true }))}>
+                <button type="button" className="openWordModalBtn" onClick={() => void openWordPicker()}>
                   単語を選ぶ
                 </button>
               </div>
@@ -1165,13 +1182,14 @@ export default function HomePage() {
                   className="wordSetInput"
                   placeholder="セット名を入力"
                   value={game.newWordSetName}
-                  onChange={(event) => setGame((prev) => ({ ...prev, newWordSetName: event.target.value, wordSetMessage: '' }))}
+                  onChange={(event) => setGame((prev) => ({ ...prev, newWordSetName: event.target.value, wordSetMessage: '', wordSetMessageType: '' }))}
                 />
                 <button type="button" className="retryBtn secondaryAction" onClick={() => void handleSaveWordSet()} disabled={!canSaveWordSet}>
                   セットとして保存
                 </button>
               </div>
-              {game.wordSetMessage && <p className="wordSetMessage">{game.wordSetMessage}</p>}
+              {game.wordSetMessage && <p className={`wordSetMessage ${game.wordSetMessageType === 'error' ? 'error' : 'success'}`}>{game.wordSetMessage}</p>}
+              {game.wordSetFetchError && <p className="wordSetMessage error">{game.wordSetFetchError}</p>}
               <div className="savedWordSets">
                 <p className="sectionLabel">保存済みセット</p>
                 {!game.wordSets.length ? (
@@ -1452,6 +1470,12 @@ export default function HomePage() {
         .wordSetMessage {
           margin: 6px 0 0;
           font-size: 0.85rem;
+        }
+        .wordSetMessage.success {
+          color: #2f8f44;
+        }
+        .wordSetMessage.error {
+          color: #c73e3e;
         }
         .savedWordSets {
           margin-top: 6px;
