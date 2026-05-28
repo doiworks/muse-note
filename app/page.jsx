@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 const MODE_TIMING = {
@@ -135,6 +135,29 @@ function DiffText({ answer, correct }) {
   });
 }
 
+const FILTER_KEYS = ['school_level', 'grade', 'term', 'exam_type', 'category1', 'category2', 'category3'];
+
+const WordListItem = memo(function WordListItem({ word, selected, isImportant, onToggle, onSpeak }) {
+  const stats = word.stats;
+  return (
+    <button type="button" className={`wordItem ${selected ? 'selected' : ''}`} onClick={() => onToggle(word.id)}>
+      <div className="wordMain">
+        <div><strong>{word.english}</strong> / {word.japanese} {word.phonetic ? <span className="mini">{word.phonetic}</span> : null}</div>
+        <div className="badgeRow">
+          {word.grade ? <span className="miniBadge">G{word.grade}</span> : null}
+          {word.term ? <span className="miniBadge">T{word.term}</span> : null}
+          {word.category1 ? <span className="miniBadge">{word.category1}</span> : null}
+          {word.category2 ? <span className="miniBadge">{word.category2}</span> : null}
+          {word.category3 ? <span className="miniBadge">{word.category3}</span> : null}
+          {isImportant ? <span className="importantBadge">重要</span> : null}
+        </div>
+        <div className="statsLine">{stats ? `正答率 ${Math.round(Number(stats.accuracy || 0))}% / 回答 ${stats.attempt_count} / 正 ${stats.success_count} / 誤 ${stats.mistake_count}` : '未出題'}</div>
+      </div>
+      <span className="speakerBtn" onClick={(event) => { event.stopPropagation(); onSpeak(word.english); }} role="button" aria-label={`${word.english}を発音`} tabIndex={0}>🔊</span>
+    </button>
+  );
+});
+
 export default function HomePage() {
   const router = useRouter();
   const [game, setGame] = useState(INITIAL_GAME);
@@ -148,16 +171,17 @@ export default function HomePage() {
   const totalElapsed = game.now && game.totalStart ? game.now - game.totalStart : 0;
   const questionElapsed = game.now && game.questionStart ? game.now - game.questionStart : 0;
   const accuracy = game.answeredCount ? Math.round((game.correctCount / game.answeredCount) * 100) : 0;
-  const filterOptions = useMemo(() => ['school_level', 'grade', 'term', 'exam_type', 'category1', 'category2', 'category3'].reduce((acc, key) => {
+  const selectedWordIdSet = useMemo(() => new Set(game.selectedWordIds), [game.selectedWordIds]);
+  const filterOptions = useMemo(() => FILTER_KEYS.reduce((acc, key) => {
     acc[key] = [...new Set(game.selectableWords.map((word) => word[key]).filter(hasValue).map(String))].sort((a, b) => a.localeCompare(b, 'ja'));
     return acc;
   }, {}), [game.selectableWords]);
+  const normalizedWordSearch = useMemo(() => normalizeText(game.wordSearch), [game.wordSearch]);
   const filteredWords = useMemo(() => game.selectableWords.filter((word) => {
-    const keyword = normalizeText(game.wordSearch);
     const matchesKeyword =
-      !keyword ||
+      !normalizedWordSearch ||
       ['english', 'japanese', 'phonetic', 'example', 'pos_j', 'category1', 'category2', 'category3', 'exam_type'].some((field) =>
-        normalizeText(word[field]).includes(keyword)
+        normalizeText(word[field]).includes(normalizedWordSearch)
       );
     if (!matchesKeyword) return false;
     const { filters } = game;
@@ -170,9 +194,9 @@ export default function HomePage() {
       (!filters.category2 || String(word.category2) === filters.category2) &&
       (!filters.category3 || String(word.category3) === filters.category3) &&
       (!filters.importantOnly || isImportantWord(word)) &&
-      (!filters.selectedOnly || game.selectedWordIds.includes(word.id));
+      (!filters.selectedOnly || selectedWordIdSet.has(word.id));
     return matchesFilters;
-  }), [game.selectableWords, game.wordSearch, game.filters, game.selectedWordIds]);
+  }), [game.selectableWords, normalizedWordSearch, game.filters, selectedWordIdSet]);
 
   const selectedCount = game.selectedWordIds.length;
   const selectedOnlyDisabled = selectedCount === 0;
@@ -703,7 +727,8 @@ export default function HomePage() {
     const safeRequestedCount = Number.isFinite(requestedCount) && requestedCount > 0 ? Math.floor(requestedCount) : 0;
     setGame((prev) => ({ ...prev, isLoading: true, errorMessage: '' }));
     try {
-      const selectedWords = current.selectableWords.filter((word) => current.selectedWordIds.includes(word.id));
+      const selectedSet = new Set(current.selectedWordIds);
+      const selectedWords = current.selectableWords.filter((word) => selectedSet.has(word.id));
       const shouldRefetch = current.questionMode !== 'select';
       const words = current.questionMode === 'select'
         ? selectedWords
@@ -824,7 +849,8 @@ export default function HomePage() {
       setGame((prev) => ({ ...prev, errorMessage: '単語を1つ以上選択してください。' }));
       return;
     }
-    const selectedWords = game.selectableWords.filter((word) => game.selectedWordIds.includes(word.id));
+    const selectedSet = new Set(game.selectedWordIds);
+    const selectedWords = game.selectableWords.filter((word) => selectedSet.has(word.id));
     void handleStart(selectedWords, 'select');
   }
 
@@ -1141,28 +1167,28 @@ export default function HomePage() {
               <h2>単語を選ぶ</h2>
               <button type="button" onClick={() => setGame((prev) => ({ ...prev, isWordPickerOpen: false }))}>閉じる</button>
             </div>
-            <input className="searchInput" placeholder="検索: english / japanese / phonetic / example / 品詞 / カテゴリ" value={game.wordSearch} onChange={(event) => setGame((prev) => ({ ...prev, wordSearch: event.target.value }))} />
-            <div className="filterGrid">
-              {['school_level','grade','term','exam_type','category1','category2','category3'].map((key) => (
-                <select key={key} className="filterSelect" value={game.filters[key]} onChange={(event) => setFilterValue(key, event.target.value)}>
-                  <option value="">{key}</option>
-                  {(filterOptions[key] || []).map((value) => <option key={value} value={value}>{value}</option>)}
-                </select>
-              ))}
+            <div className="pickerTopControls">
+              <input className="searchInput" placeholder="検索: english / japanese / phonetic / example / 品詞 / カテゴリ" value={game.wordSearch} onChange={(event) => setGame((prev) => ({ ...prev, wordSearch: event.target.value }))} />
+              <div className="primaryActions">
+                <p className="selectedCount">選択数: {selectedCount}件 / 表示中: {filteredWords.length}件</p>
+                <button type="button" className="retryBtn primary compact" onClick={() => setGame((prev) => ({ ...prev, isWordPickerOpen: false }))}>決定</button>
+              </div>
             </div>
-            <div className="toggleRow">
+            <div className="filterRowCompact">
               <label><input type="checkbox" checked={game.filters.importantOnly} onChange={(event) => setFilterValue('importantOnly', event.target.checked)} /> 重要のみ</label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={game.filters.selectedOnly}
-                  disabled={selectedOnlyDisabled}
-                  onChange={(event) => setFilterValue('selectedOnly', event.target.checked)}
-                />{' '}
-                選択済みだけ表示
-              </label>
+              <label><input type="checkbox" checked={game.filters.selectedOnly} disabled={selectedOnlyDisabled} onChange={(event) => setFilterValue('selectedOnly', event.target.checked)} /> 選択済みだけ表示</label>
+              <details className="filterDetails">
+                <summary>詳細フィルター</summary>
+                <div className="filterGrid">
+                  {FILTER_KEYS.map((key) => (
+                    <select key={key} className="filterSelect" value={game.filters[key]} onChange={(event) => setFilterValue(key, event.target.value)}>
+                      <option value="">{key}</option>
+                      {(filterOptions[key] || []).map((value) => <option key={value} value={value}>{value}</option>)}
+                    </select>
+                  ))}
+                </div>
+              </details>
             </div>
-            <p className="selectedCount">選択数: {selectedCount}件 / 表示中: {filteredWords.length}件</p>
             {selectedOnlyDisabled && (
               <p className="wordListHint">まだ選択された単語はありません</p>
             )}
@@ -1182,30 +1208,19 @@ export default function HomePage() {
                   <p>フィルターを少し減らしてください</p>
                 </div>
               )}
-              {filteredWords.map((word) => {
-                const selected = game.selectedWordIds.includes(word.id);
-                const isImportant = isImportantWord(word);
-                const stats = word.stats;
-                return (
-                  <button type="button" key={word.id} className={`wordItem ${selected ? 'selected' : ''}`} onClick={() => toggleSelectedWord(word.id)}>
-                    <div className="wordMain">
-                      <div><strong>{word.english}</strong> / {word.japanese} {word.phonetic ? <span className="mini">{word.phonetic}</span> : null}</div>
-                      <div className="badgeRow">
-                        {word.grade ? <span className="miniBadge">G{word.grade}</span> : null}
-                        {word.term ? <span className="miniBadge">T{word.term}</span> : null}
-                        {word.category1 ? <span className="miniBadge">{word.category1}</span> : null}
-                        {word.category2 ? <span className="miniBadge">{word.category2}</span> : null}
-                        {word.category3 ? <span className="miniBadge">{word.category3}</span> : null}
-                        {isImportant ? <span className="importantBadge">重要</span> : null}
-                      </div>
-                      <div className="statsLine">{stats ? `正答率 ${Math.round(Number(stats.accuracy || 0))}% / 回答 ${stats.attempt_count} / 正 ${stats.success_count} / 誤 ${stats.mistake_count}` : '未出題'}</div>
-                    </div>
-                    <span className="speakerBtn" onClick={(event) => { event.stopPropagation(); speak(word.english); }} role="button" aria-label={`${word.english}を発音`} tabIndex={0}>🔊</span>
-                  </button>
-                );
-              })}
+              {filteredWords.map((word) => (
+                <WordListItem
+                  key={word.id}
+                  word={word}
+                  selected={selectedWordIdSet.has(word.id)}
+                  isImportant={isImportantWord(word)}
+                  onToggle={toggleSelectedWord}
+                  onSpeak={speak}
+                />
+              ))}
             </div>
-            <div className="wordSetPanel">
+            <details className="wordSetPanel">
+              <summary className="sectionLabel">保存セット</summary>
               <p className="sectionLabel">セットとして保存</p>
               <div className="wordSetSaveRow">
                 <input
@@ -1241,10 +1256,7 @@ export default function HomePage() {
                   </div>
                 )}
               </div>
-            </div>
-            <div className="modalFooter">
-              <button type="button" className="retryBtn primary" onClick={() => setGame((prev) => ({ ...prev, isWordPickerOpen: false }))}>決定</button>
-            </div>
+            </details>
           </div>
         </div>
       )}
@@ -1384,9 +1396,9 @@ export default function HomePage() {
         }
         .filterGrid {
           display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
+          grid-template-columns: repeat(3, minmax(0, 1fr));
           gap: 6px;
-          margin-top: 8px;
+          margin-top: 6px;
         }
         .filterSelect {
           border: 1px solid #d0dbf1;
@@ -1409,7 +1421,6 @@ export default function HomePage() {
           font-size: 0.8rem;
         }
         .wordList {
-          max-height: 220px;
           overflow: auto;
           border: 1px solid #e2eaf7;
           border-radius: 10px;
@@ -1461,6 +1472,33 @@ export default function HomePage() {
           display: flex;
           flex-direction: column;
           gap: 8px;
+          overflow: hidden;
+        }
+        .pickerTopControls {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 8px;
+          align-items: center;
+        }
+        .primaryActions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .compact {
+          padding: 0.5em 0.8em;
+          min-width: 84px;
+        }
+        .filterRowCompact {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 10px;
+        }
+        .filterDetails summary {
+          cursor: pointer;
+          color: #486287;
+          font-size: 0.9rem;
         }
         .wordPickerHeader {
           display: flex;
@@ -1474,9 +1512,10 @@ export default function HomePage() {
           font-size: 1.2rem;
         }
         .wordList.inModal {
-          flex: 1;
+          flex: 1 1 auto;
           max-height: none;
           min-height: 0;
+          height: 100%;
         }
         .wordListEmpty {
           padding: 18px 12px;
@@ -1491,14 +1530,14 @@ export default function HomePage() {
         .wordListEmpty p {
           margin: 4px 0;
         }
-        .modalFooter {
-          display: flex;
-          justify-content: flex-end;
-        }
         .wordSetPanel {
           border-top: 1px solid #e2eaf7;
           padding-top: 8px;
           text-align: left;
+          flex: 0 0 auto;
+        }
+        .wordSetPanel summary {
+          cursor: pointer;
         }
         .wordSetSaveRow {
           display: flex;
@@ -1539,7 +1578,7 @@ export default function HomePage() {
           margin-top: 6px;
         }
         .savedWordSetList {
-          max-height: 140px;
+          max-height: 120px;
           overflow: auto;
           display: flex;
           flex-direction: column;
@@ -1576,6 +1615,17 @@ export default function HomePage() {
           margin: 4px 0 0;
           color: #6a7f9f;
           font-size: 0.85rem;
+        }
+        @media (max-width: 780px) {
+          .filterGrid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+          .pickerTopControls {
+            grid-template-columns: 1fr;
+          }
+          .primaryActions {
+            justify-content: space-between;
+          }
         }
 
         .modeBtn,
