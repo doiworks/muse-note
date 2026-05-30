@@ -57,6 +57,19 @@ const INITIAL_GAME = {
   wordSetFetchError: '',
   isWordPickerOpen: false,
   pickerPanel: '',
+  draftFilters: {
+    school_level: '',
+    grade: '',
+    term: '',
+    exam_type: '',
+    category1: '',
+    category2: '',
+    category3: '',
+    importantOnly: false,
+    selectedOnly: false
+  },
+  wordSetSearch: '',
+  pendingWordSetIds: [],
   wordSearchDraft: '',
   wordSearch: '',
   filters: {
@@ -258,6 +271,13 @@ export default function HomePage() {
   const selectedOnlyDisabled = selectedCount === 0;
   const activeFilterCount = useMemo(() => Object.values(game.filters).filter(Boolean).length, [game.filters]);
   const shouldShowWordListEmptyState = filteredWords.length === 0;
+
+  const normalizedWordSetSearch = useMemo(() => normalizeText(game.wordSetSearch), [game.wordSetSearch]);
+  const filteredWordSets = useMemo(() => {
+    if (!normalizedWordSetSearch) return game.wordSets;
+    return game.wordSets.filter((setItem) => normalizeText(setItem.name).includes(normalizedWordSetSearch));
+  }, [game.wordSets, normalizedWordSetSearch]);
+  const pendingWordSetIdSet = useMemo(() => new Set(game.pendingWordSetIds), [game.pendingWordSetIds]);
 
 
   useEffect(() => {
@@ -965,7 +985,7 @@ export default function HomePage() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || '削除に失敗しました。');
       const sets = await fetchWordSets();
-      setGame((prev) => ({ ...prev, wordSets: sets, wordSetMessage: '削除しました', wordSetMessageType: 'success', wordSetFetchError: '' }));
+      setGame((prev) => ({ ...prev, wordSets: sets, pendingWordSetIds: prev.pendingWordSetIds.filter((id) => id !== wordSetId), wordSetMessage: '削除しました', wordSetMessageType: 'success', wordSetFetchError: '' }));
     } catch (error) {
       setGame((prev) => ({ ...prev, wordSetMessage: error.message || '削除に失敗しました。', wordSetMessageType: 'error' }));
     }
@@ -979,6 +999,9 @@ export default function HomePage() {
       ...prev,
       isWordPickerOpen: true,
       pickerPanel: initialPanel,
+      draftFilters: initialPanel === 'category' ? { ...prev.filters } : prev.draftFilters,
+      pendingWordSetIds: initialPanel === 'open' ? [] : prev.pendingWordSetIds,
+      wordSetSearch: initialPanel === 'open' ? '' : prev.wordSetSearch,
       wordSearchDraft: prev.wordSearch,
       wordSetMessage: '',
       wordSetMessageType: ''
@@ -991,8 +1014,20 @@ export default function HomePage() {
     }
   }
 
+  function openPickerPanel(panel) {
+    setGame((prev) => ({
+      ...prev,
+      pickerPanel: prev.pickerPanel === panel ? '' : panel,
+      draftFilters: panel === 'category' ? { ...prev.filters } : prev.draftFilters,
+      pendingWordSetIds: panel === 'open' ? [] : prev.pendingWordSetIds,
+      wordSetSearch: panel === 'open' ? '' : prev.wordSetSearch,
+      wordSetMessage: '',
+      wordSetMessageType: ''
+    }));
+  }
+
   function closeWordPickerPanel() {
-    setGame((prev) => ({ ...prev, pickerPanel: '', wordSetMessage: '', wordSetMessageType: '' }));
+    setGame((prev) => ({ ...prev, pickerPanel: '', draftFilters: { ...prev.filters }, wordSetMessage: '', wordSetMessageType: '' }));
   }
 
   function applyWordSearch() {
@@ -1006,36 +1041,62 @@ export default function HomePage() {
   }
 
   function clearFilters() {
-    setGame((prev) => ({ ...prev, filters: { ...INITIAL_GAME.filters } }));
+    setGame((prev) => ({ ...prev, draftFilters: { ...INITIAL_GAME.filters } }));
   }
 
-  async function handleSelectWordSet(wordSetId) {
+  function applyCategoryFilters() {
+    setGame((prev) => ({ ...prev, filters: { ...prev.draftFilters }, pickerPanel: '' }));
+  }
+
+  function togglePendingWordSet(wordSetId) {
+    setGame((prev) => {
+      const next = new Set(prev.pendingWordSetIds);
+      if (next.has(wordSetId)) next.delete(wordSetId);
+      else next.add(wordSetId);
+      return { ...prev, pendingWordSetIds: [...next], wordSetMessage: '', wordSetMessageType: '' };
+    });
+  }
+
+  async function handleApplyWordSets() {
+    if (!game.pendingWordSetIds.length) {
+      setGame((prev) => ({ ...prev, wordSetMessage: '追加する保存セットを選択してください。', wordSetMessageType: 'error' }));
+      return;
+    }
     try {
-      const response = await fetch(`/api/word-sets/${wordSetId}`);
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || 'セットの取得に失敗しました。');
-      const words = data.words || [];
-      const selectedWordSet = game.wordSets.find((setItem) => setItem.id === wordSetId);
+      const results = await Promise.all(game.pendingWordSetIds.map(async (wordSetId) => {
+        const response = await fetch(`/api/word-sets/${wordSetId}`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'セットの取得に失敗しました。');
+        return { wordSetId, words: data.words || [] };
+      }));
+      const selectedNames = game.wordSets
+        .filter((setItem) => game.pendingWordSetIds.includes(setItem.id))
+        .map((setItem) => setItem.name);
+      const nextSelected = new Set(game.selectedWordIds);
+      results.forEach(({ words }) => {
+        words.map((word) => word.id).filter(hasValue).forEach((wordId) => nextSelected.add(wordId));
+      });
       setGame((prev) => ({
         ...prev,
-        selectedWordIds: words.map((word) => word.id).filter(hasValue),
-        selectedWordSetId: wordSetId,
-        selectedWordSetName: selectedWordSet?.name || '',
-        wordSetMessage: `${selectedWordSet?.name || 'セット'}を選択しました`,
-        wordSetMessageType: 'success',
-        pickerPanel: ''
+        selectedWordIds: [...nextSelected],
+        selectedWordSetId: game.pendingWordSetIds.join(','),
+        selectedWordSetName: selectedNames.join(' / '),
+        pendingWordSetIds: [],
+        pickerPanel: '',
+        wordSetMessage: `${selectedNames.length}セットを選択に追加しました`,
+        wordSetMessageType: 'success'
       }));
     } catch (error) {
       setGame((prev) => ({ ...prev, wordSetMessage: error.message || 'セットの読み込みに失敗しました。', wordSetMessageType: 'error' }));
     }
   }
 
-  function setFilterValue(key, value) {
+  function setDraftFilterValue(key, value) {
     setGame((prev) => {
       if (key === 'selectedOnly' && value && prev.selectedWordIds.length === 0) {
         return prev;
       }
-      return { ...prev, filters: { ...prev.filters, [key]: value } };
+      return { ...prev, draftFilters: { ...prev.draftFilters, [key]: value } };
     });
   }
 
@@ -1297,99 +1358,136 @@ export default function HomePage() {
                 <button type="button" className="pickerActionBtn primaryAction" onClick={applyWordSearch}>検索</button>
               </div>
               <div className="pickerPrimaryActions" aria-label="単語選択操作">
-                <button type="button" className="pickerActionBtn" onClick={() => setGame((prev) => ({ ...prev, pickerPanel: prev.pickerPanel === 'category' ? '' : 'category' }))}>
+                <button type="button" className="pickerActionBtn" onClick={() => openPickerPanel('category')}>
                   カテゴリ{activeFilterCount ? `（${activeFilterCount}）` : ''}
                 </button>
                 <button type="button" className="pickerActionBtn" onClick={() => selectVisible(true)}>すべて選択</button>
                 <button type="button" className="pickerActionBtn" onClick={() => selectVisible(false)}>解除</button>
-                <button type="button" className="pickerActionBtn" onClick={() => setGame((prev) => ({ ...prev, pickerPanel: prev.pickerPanel === 'save' ? '' : 'save', wordSetMessage: '', wordSetMessageType: '' }))}>保存</button>
-                <button type="button" className="pickerActionBtn" onClick={() => setGame((prev) => ({ ...prev, pickerPanel: prev.pickerPanel === 'open' ? '' : 'open', wordSetMessage: '', wordSetMessageType: '' }))}>開く</button>
+                <button type="button" className="pickerActionBtn" onClick={() => openPickerPanel('save')}>保存</button>
+                <button type="button" className="pickerActionBtn" onClick={() => openPickerPanel('open')}>開く</button>
                 <span className="selectedInline">選択中：<strong>{selectedCount}</strong>語</span>
                 <span className="visibleCount">表示中：{filteredWords.length}語</span>
               </div>
             </section>
+            {!game.pickerPanel && game.wordSetMessage && <p className={`wordSetMessage floatingMessage ${game.wordSetMessageType === 'error' ? 'error' : 'success'}`}>{game.wordSetMessage}</p>}
 
             {game.pickerPanel === 'category' && (
-              <section className="pickerPopoverPanel categoryPanel" aria-label="カテゴリ選択">
-                <div className="panelTitleRow">
-                  <h3>カテゴリ</h3>
-                  <button type="button" className="panelCloseButton" onClick={closeWordPickerPanel}>閉じる</button>
-                </div>
-                <div className="filterGrid categoryFilterGrid">
-                  {FILTER_KEYS.map((key) => (
-                    <label key={key} className="filterField">
-                      <span>{key}</span>
-                      <select className="filterSelect" value={game.filters[key]} onChange={(event) => setFilterValue(key, event.target.value)}>
-                        <option value="">指定なし</option>
-                        {(filterOptions[key] || []).map((value) => <option key={value} value={value}>{value}</option>)}
-                      </select>
+              <div className="pickerPanelOverlay" role="presentation">
+                <section className="pickerPopoverPanel categoryPanel" aria-label="カテゴリ選択">
+                  <div className="panelTitleRow">
+                    <div>
+                      <p className="panelEyebrow">Filter</p>
+                      <h3>カテゴリを選ぶ</h3>
+                    </div>
+                    <button type="button" className="panelCloseButton" onClick={closeWordPickerPanel}>閉じる</button>
+                  </div>
+                  <div className="filterGrid categoryFilterGrid">
+                    {FILTER_KEYS.map((key) => (
+                      <label key={key} className="filterField">
+                        <span>{key}</span>
+                        <select className="filterSelect" value={game.draftFilters[key]} onChange={(event) => setDraftFilterValue(key, event.target.value)}>
+                          <option value="">指定なし</option>
+                          {(filterOptions[key] || []).map((value) => <option key={value} value={value}>{value}</option>)}
+                        </select>
+                      </label>
+                    ))}
+                    <label className={`pillCheck ${game.draftFilters.importantOnly ? 'active' : ''}`}>
+                      <input type="checkbox" checked={game.draftFilters.importantOnly} onChange={(event) => setDraftFilterValue('importantOnly', event.target.checked)} />
+                      重要のみ
                     </label>
-                  ))}
-                  <label className={`pillCheck ${game.filters.importantOnly ? 'active' : ''}`}>
-                    <input type="checkbox" checked={game.filters.importantOnly} onChange={(event) => setFilterValue('importantOnly', event.target.checked)} />
-                    重要のみ
-                  </label>
-                  <label className={`pillCheck ${game.filters.selectedOnly ? 'active' : ''} ${selectedOnlyDisabled ? 'disabled' : ''}`}>
-                    <input type="checkbox" checked={game.filters.selectedOnly} disabled={selectedOnlyDisabled} onChange={(event) => setFilterValue('selectedOnly', event.target.checked)} />
-                    選択済みだけ表示
-                  </label>
-                </div>
-                {selectedOnlyDisabled && <p className="wordListHint">まだ選択された単語はありません</p>}
-                <div className="panelActions">
-                  <button type="button" className="retryBtn primary compact" onClick={closeWordPickerPanel}>適用</button>
-                  <button type="button" className="retryBtn secondaryAction compact" onClick={clearFilters}>クリア</button>
-                  <button type="button" className="retryBtn tertiary compact" onClick={closeWordPickerPanel}>閉じる</button>
-                </div>
-              </section>
+                    <label className={`pillCheck ${game.draftFilters.selectedOnly ? 'active' : ''} ${selectedOnlyDisabled ? 'disabled' : ''}`}>
+                      <input type="checkbox" checked={game.draftFilters.selectedOnly} disabled={selectedOnlyDisabled} onChange={(event) => setDraftFilterValue('selectedOnly', event.target.checked)} />
+                      選択済みだけ表示
+                    </label>
+                  </div>
+                  {selectedOnlyDisabled && <p className="wordListHint">まだ選択された単語はありません</p>}
+                  <div className="panelActions">
+                    <button type="button" className="retryBtn primary compact" onClick={applyCategoryFilters}>適用</button>
+                    <button type="button" className="retryBtn secondaryAction compact" onClick={clearFilters}>クリア</button>
+                    <button type="button" className="retryBtn tertiary compact" onClick={closeWordPickerPanel}>閉じる</button>
+                  </div>
+                </section>
+              </div>
             )}
 
             {game.pickerPanel === 'save' && (
-              <section className="pickerPopoverPanel savePanel" aria-label="セットとして保存">
-                <div className="panelTitleRow">
-                  <h3>セットとして保存</h3>
-                  <button type="button" className="panelCloseButton" onClick={closeWordPickerPanel}>閉じる</button>
-                </div>
-                <div className="wordSetSaveRow">
-                  <input
-                    className="wordSetInput"
-                    placeholder="セット名を入力"
-                    value={game.newWordSetName}
-                    onChange={(event) => setGame((prev) => ({ ...prev, newWordSetName: event.target.value, wordSetMessage: '', wordSetMessageType: '' }))}
-                  />
-                  <button type="button" className="retryBtn secondaryAction" onClick={() => void handleSaveWordSet()} disabled={!canSaveWordSet}>保存</button>
-                </div>
-                {game.wordSetMessage && <p className={`wordSetMessage ${game.wordSetMessageType === 'error' ? 'error' : 'success'}`}>{game.wordSetMessage}</p>}
-              </section>
+              <div className="pickerPanelOverlay" role="presentation">
+                <section className="pickerPopoverPanel savePanel" aria-label="セットとして保存">
+                  <div className="panelTitleRow">
+                    <div>
+                      <p className="panelEyebrow">Save set</p>
+                      <h3>選択中の単語を保存</h3>
+                    </div>
+                    <button type="button" className="panelCloseButton" onClick={closeWordPickerPanel}>閉じる</button>
+                  </div>
+                  <p className="panelLead">選択中の{selectedCount}語に名前を付けて保存します。</p>
+                  <div className="wordSetSaveRow">
+                    <input
+                      className="wordSetInput"
+                      placeholder="例：1学期期末 / PROGRAM5 / 苦手"
+                      value={game.newWordSetName}
+                      onChange={(event) => setGame((prev) => ({ ...prev, newWordSetName: event.target.value, wordSetMessage: '', wordSetMessageType: '' }))}
+                    />
+                    <button type="button" className="retryBtn secondaryAction" onClick={() => void handleSaveWordSet()} disabled={!canSaveWordSet}>保存</button>
+                  </div>
+                  {(!game.newWordSetName.trim() || selectedCount === 0) && <p className="wordListHint">セット名と1語以上の選択が必要です。</p>}
+                  {game.wordSetMessage && <p className={`wordSetMessage ${game.wordSetMessageType === 'error' ? 'error' : 'success'}`}>{game.wordSetMessage}</p>}
+                </section>
+              </div>
             )}
 
             {game.pickerPanel === 'open' && (
-              <section className="pickerPopoverPanel openPanel" aria-label="保存済みセットを開く">
-                <div className="panelTitleRow">
-                  <h3>保存済みセット</h3>
-                  <button type="button" className="panelCloseButton" onClick={closeWordPickerPanel}>閉じる</button>
-                </div>
-                {game.wordSetFetchError && <p className="wordSetInlineNotice">保存済みセットを読み込めませんでした。単語選択はそのまま使えます。</p>}
-                {!game.wordSets.length ? (
-                  <p className="emptyWordSets">保存済みセットはありません。</p>
-                ) : (
-                  <div className="savedWordSetList openSetList">
-                    {game.wordSets.map((setItem) => (
-                      <div key={setItem.id} className="savedWordSetItem">
-                        <div className="savedWordSetInfo">
-                          <strong>{setItem.name}</strong>
-                          <span>{setItem.word_count ?? 0}語</span>
-                        </div>
-                        <div className="savedWordSetActions">
-                          <button type="button" onClick={() => void handleSelectWordSet(setItem.id)}>選択する</button>
-                          <button type="button" onClick={() => void handleStartFromWordSet(setItem.id)}>このセットで出題</button>
-                          <button type="button" onClick={() => void handleDeleteWordSet(setItem.id)}>削除</button>
-                        </div>
-                      </div>
-                    ))}
+              <div className="pickerPanelOverlay" role="presentation">
+                <section className="pickerPopoverPanel openPanel" aria-label="保存済みセットを開く">
+                  <div className="panelTitleRow">
+                    <div>
+                      <p className="panelEyebrow">Saved sets</p>
+                      <h3>保存セットを選択に追加</h3>
+                    </div>
+                    <button type="button" className="panelCloseButton" onClick={closeWordPickerPanel}>閉じる</button>
                   </div>
-                )}
-                {game.wordSetMessage && <p className={`wordSetMessage ${game.wordSetMessageType === 'error' ? 'error' : 'success'}`}>{game.wordSetMessage}</p>}
-              </section>
+                  <div className="wordSetSearchRow">
+                    <input
+                      className="wordSetInput"
+                      placeholder="セット名で検索（例：1学期期末、重要、PROGRAM5）"
+                      value={game.wordSetSearch}
+                      onChange={(event) => setGame((prev) => ({ ...prev, wordSetSearch: event.target.value }))}
+                    />
+                    <span className="selectedSetCount">選択中：{game.pendingWordSetIds.length}セット</span>
+                  </div>
+                  {game.wordSetFetchError && <p className="wordSetInlineNotice">保存済みセットを読み込めませんでした。単語選択はそのまま使えます。</p>}
+                  {!game.wordSets.length ? (
+                    <p className="emptyWordSets">保存済みセットはありません。</p>
+                  ) : filteredWordSets.length === 0 ? (
+                    <p className="emptyWordSets">検索条件に合う保存セットはありません。</p>
+                  ) : (
+                    <div className="savedWordSetList openSetList">
+                      {filteredWordSets.map((setItem) => {
+                        const checked = pendingWordSetIdSet.has(setItem.id);
+                        return (
+                          <div key={setItem.id} className={`savedWordSetItem selectableSetItem ${checked ? 'selected' : ''}`} onClick={() => togglePendingWordSet(setItem.id)} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); togglePendingWordSet(setItem.id); } }}>
+                            <input type="checkbox" checked={checked} onClick={(event) => event.stopPropagation()} onChange={() => togglePendingWordSet(setItem.id)} />
+                            <span className="savedWordSetInfo">
+                              <strong>{setItem.name}</strong>
+                              <span>{setItem.word_count ?? 0}語</span>
+                            </span>
+                            <span className="savedWordSetActions inlineActions">
+                              <button type="button" onClick={(event) => { event.stopPropagation(); void handleStartFromWordSet(setItem.id); }}>このセットで出題</button>
+                              <button type="button" onClick={(event) => { event.stopPropagation(); void handleDeleteWordSet(setItem.id); }}>削除</button>
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div className="panelActions splitActions">
+                    <span>{filteredWordSets.length}件表示</span>
+                    <button type="button" className="retryBtn primary compact" onClick={() => void handleApplyWordSets()} disabled={!game.pendingWordSetIds.length}>適用</button>
+                    <button type="button" className="retryBtn tertiary compact" onClick={closeWordPickerPanel}>閉じる</button>
+                  </div>
+                  {game.wordSetMessage && <p className={`wordSetMessage ${game.wordSetMessageType === 'error' ? 'error' : 'success'}`}>{game.wordSetMessage}</p>}
+                </section>
+              </div>
             )}
 
             <section className="wordListPanel mainWordListPanel" aria-label="単語一覧">
@@ -2098,39 +2196,43 @@ export default function HomePage() {
           padding: 6px;
           display: flex;
           flex-direction: column;
-          gap: 4px;
+          gap: 6px;
         }
         .wordRowItem {
           position: relative;
           width: 100%;
           display: grid;
-          grid-template-columns: 28px minmax(0, 1fr) 42px;
+          grid-template-columns: 30px minmax(0, 1fr) 42px;
           align-items: center;
-          gap: 8px;
+          gap: 10px;
           border: 1px solid #dce7f6;
-          border-left: 4px solid transparent;
-          border-radius: 12px;
-          background: #ffffff;
+          border-left: 5px solid transparent;
+          border-radius: 15px;
+          background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
           color: #365b86;
-          padding: 8px 9px 8px 8px;
+          padding: 10px 10px 10px 8px;
+          box-shadow: 0 4px 14px rgba(60, 100, 145, 0.05);
+          transition: transform 0.16s, border-color 0.16s, background 0.16s, box-shadow 0.16s;
           text-align: left;
           cursor: pointer;
         }
         .wordRowItem:hover {
           border-color: #b9d2ef;
           background: #fbfdff;
+          transform: translateY(-1px);
+          box-shadow: 0 8px 18px rgba(60, 100, 145, 0.08);
         }
         .wordRowItem.selected {
-          background: #e5f3ff;
-          border-color: #9ac8f3;
-          border-left-color: #3f8ed7;
-          box-shadow: inset 0 0 0 1px rgba(63, 142, 215, 0.14);
+          background: linear-gradient(90deg, #dff0ff 0%, #eff8ff 100%);
+          border-color: #8bc4f3;
+          border-left-color: #2584d9;
+          box-shadow: inset 0 0 0 1px rgba(37, 132, 217, 0.16), 0 8px 22px rgba(37, 132, 217, 0.12);
         }
         .wordCheck {
-          width: 22px;
-          height: 22px;
+          width: 24px;
+          height: 24px;
           border: 2px solid #b8cce6;
-          border-radius: 7px;
+          border-radius: 9px;
           display: inline-flex;
           align-items: center;
           justify-content: center;
@@ -2140,14 +2242,15 @@ export default function HomePage() {
           line-height: 1;
         }
         .wordRowItem.selected .wordCheck {
-          border-color: #3f8ed7;
-          background: #3f8ed7;
+          border-color: #2584d9;
+          background: linear-gradient(180deg, #48a2ed 0%, #2584d9 100%);
+          box-shadow: 0 4px 10px rgba(37, 132, 217, 0.28);
         }
         .wordRowMain {
           min-width: 0;
           display: flex;
           flex-direction: column;
-          gap: 4px;
+          gap: 5px;
         }
         .wordTitleLine {
           min-width: 0;
@@ -2156,14 +2259,14 @@ export default function HomePage() {
           gap: 10px;
         }
         .wordEnglish {
-          color: #1f4f84;
-          font-size: 1.08rem;
+          color: #174b82;
+          font-size: 1.12rem;
           letter-spacing: 0.01em;
           white-space: nowrap;
         }
         .wordJapanese {
-          color: #3f5f84;
-          font-size: 0.95rem;
+          color: #365f8e;
+          font-size: 0.96rem;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
@@ -2176,8 +2279,8 @@ export default function HomePage() {
         }
         .wordPhonetic {
           flex: 0 0 auto;
-          color: #7890ad;
-          font-size: 0.82rem;
+          color: #8198b5;
+          font-size: 0.8rem;
         }
         .wordTags {
           min-width: 0;
@@ -2210,8 +2313,15 @@ export default function HomePage() {
           align-items: center;
           justify-content: center;
           border-radius: 999px;
-          background: #eef6ff;
+          background: linear-gradient(180deg, #eef7ff 0%, #deefff 100%);
+          border: 1px solid #cfe2f7;
           font-size: 1rem;
+          box-shadow: 0 4px 10px rgba(63, 142, 215, 0.10);
+          transition: transform 0.16s, filter 0.16s;
+        }
+        .wordSpeaker:hover {
+          filter: brightness(1.04);
+          transform: scale(1.04);
         }
         .pickerBottomBar {
           display: flex;
@@ -2299,6 +2409,94 @@ export default function HomePage() {
           gap: 10px;
           min-height: 0;
         }
+
+        .pickerPanelOverlay {
+          position: fixed;
+          inset: 0;
+          z-index: 1002;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 18px;
+          background: rgba(27, 55, 92, 0.28);
+          backdrop-filter: blur(3px);
+        }
+        .pickerPanelOverlay .pickerPopoverPanel {
+          width: min(720px, calc(100vw - 28px));
+          max-height: min(82vh, 720px);
+          overflow: auto;
+          border-color: #c8dcf4;
+          border-radius: 24px;
+          background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+          box-shadow: 0 24px 70px rgba(37, 82, 132, 0.24);
+          padding: 18px;
+        }
+        .pickerPanelOverlay .openPanel {
+          width: min(860px, calc(100vw - 28px));
+        }
+        .panelEyebrow {
+          margin: 0 0 3px;
+          color: #7e9abe;
+          font-size: 0.7rem;
+          font-weight: 900;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+        }
+        .panelLead {
+          margin: 0;
+          color: #5d789e;
+          font-size: 0.9rem;
+          font-weight: 700;
+        }
+        .wordSetSearchRow {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          align-items: center;
+          gap: 10px;
+        }
+        .selectedSetCount {
+          border: 1px solid #cfe0f5;
+          border-radius: 999px;
+          background: #eef6ff;
+          color: #315d91;
+          padding: 0.65em 0.9em;
+          font-size: 0.86rem;
+          font-weight: 900;
+          white-space: nowrap;
+        }
+        .selectableSetItem {
+          cursor: pointer;
+          transition: transform 0.16s, border-color 0.16s, box-shadow 0.16s, background 0.16s;
+        }
+        .selectableSetItem:hover {
+          transform: translateY(-1px);
+          border-color: #9fc8f0;
+          box-shadow: 0 10px 24px rgba(72, 113, 158, 0.12);
+        }
+        .selectableSetItem.selected {
+          border-color: #78b5eb;
+          background: #eaf5ff;
+          box-shadow: inset 4px 0 0 #3f8ed7;
+        }
+        .selectableSetItem input {
+          width: 18px;
+          height: 18px;
+          accent-color: #3f8ed7;
+        }
+        .inlineActions {
+          flex-direction: row;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+        }
+        .splitActions {
+          align-items: center;
+        }
+        .splitActions span {
+          margin-right: auto;
+          color: #6b85a8;
+          font-size: 0.84rem;
+          font-weight: 800;
+        }
         .panelTitleRow {
           display: flex;
           justify-content: space-between;
@@ -2383,6 +2581,19 @@ export default function HomePage() {
           .pickerControlPanel {
             padding: 10px;
             gap: 8px;
+          }
+          .pickerPanelOverlay {
+            padding: 10px;
+            align-items: flex-start;
+          }
+          .pickerPanelOverlay .pickerPopoverPanel {
+            width: 100%;
+            max-height: calc(100vh - 20px);
+            border-radius: 20px;
+            padding: 14px;
+          }
+          .wordSetSearchRow {
+            grid-template-columns: 1fr;
           }
           .pickerSearchRow {
             grid-template-columns: 1fr;
