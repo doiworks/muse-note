@@ -135,28 +135,82 @@ function DiffText({ answer, correct }) {
   });
 }
 
-const FILTER_KEYS = ['school_level', 'grade', 'term', 'exam_type', 'category1', 'category2', 'category3'];
+const BASIC_FILTER_KEYS = ['grade', 'term', 'category1'];
+const DETAIL_FILTER_KEYS = ['school_level', 'exam_type', 'category2', 'category3'];
+const FILTER_KEYS = [...BASIC_FILTER_KEYS, ...DETAIL_FILTER_KEYS];
 
-const WordListItem = memo(function WordListItem({ word, selected, isImportant, onToggle, onSpeak }) {
+const WordRow = memo(function WordRow({ word, selected, isImportant, onToggle, onSpeak }) {
   const stats = word.stats;
+  const statusLabel = stats ? `回答${stats.attempt_count ?? 0}回` : '未出題';
+  const tags = [
+    word.grade ? `G${word.grade}` : '',
+    word.term ? `T${word.term}` : '',
+    word.category1,
+    word.category2,
+    word.category3,
+    isImportant ? '重要' : '',
+    statusLabel
+  ].filter(hasValue);
+
+  function handleSpeakerClick(event) {
+    event.stopPropagation();
+    onSpeak(word.english);
+  }
+
+  function handleSpeakerKeyDown(event) {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    event.stopPropagation();
+    onSpeak(word.english);
+  }
+
+  function handleRowKeyDown(event) {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    onToggle(word.id);
+  }
+
   return (
-    <button type="button" className={`wordItem ${selected ? 'selected' : ''}`} onClick={() => onToggle(word.id)}>
-      <div className="wordMain">
-        <div><strong>{word.english}</strong> / {word.japanese} {word.phonetic ? <span className="mini">{word.phonetic}</span> : null}</div>
-        <div className="badgeRow">
-          {word.grade ? <span className="miniBadge">G{word.grade}</span> : null}
-          {word.term ? <span className="miniBadge">T{word.term}</span> : null}
-          {word.category1 ? <span className="miniBadge">{word.category1}</span> : null}
-          {word.category2 ? <span className="miniBadge">{word.category2}</span> : null}
-          {word.category3 ? <span className="miniBadge">{word.category3}</span> : null}
-          {isImportant ? <span className="importantBadge">重要</span> : null}
-        </div>
-        <div className="statsLine">{stats ? `正答率 ${Math.round(Number(stats.accuracy || 0))}% / 回答 ${stats.attempt_count} / 正 ${stats.success_count} / 誤 ${stats.mistake_count}` : '未出題'}</div>
-      </div>
-      <span className="speakerBtn" onClick={(event) => { event.stopPropagation(); onSpeak(word.english); }} role="button" aria-label={`${word.english}を発音`} tabIndex={0}>🔊</span>
-    </button>
+    <div
+      className={`wordRowItem ${selected ? 'selected' : ''}`}
+      onClick={() => onToggle(word.id)}
+      onKeyDown={handleRowKeyDown}
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+    >
+      <span className="wordCheck" aria-hidden="true">{selected ? '✓' : ''}</span>
+      <span className="wordRowMain">
+        <span className="wordTitleLine">
+          <strong className="wordEnglish">{word.english}</strong>
+          <span className="wordJapanese">{word.japanese}</span>
+        </span>
+        <span className="wordMetaLine">
+          {word.phonetic ? <span className="wordPhonetic">{word.phonetic}</span> : null}
+          <span className="wordTags">
+            {tags.map((tag, index) => (
+              <span className={`wordTag ${tag === '重要' ? 'important' : ''} ${tag === '未出題' ? 'unseen' : ''}`} key={`${word.id}-${tag}-${index}`}>
+                {tag}
+              </span>
+            ))}
+          </span>
+        </span>
+      </span>
+      <span
+        className="wordSpeaker"
+        onClick={handleSpeakerClick}
+        onKeyDown={handleSpeakerKeyDown}
+        role="button"
+        aria-label={`${word.english}を発音`}
+        tabIndex={0}
+        title="発音を聞く"
+      >
+        🔊
+      </span>
+    </div>
   );
-});
+}, (prev, next) => prev.word === next.word && prev.selected === next.selected && prev.isImportant === next.isImportant);
+
 
 export default function HomePage() {
   const router = useRouter();
@@ -835,10 +889,15 @@ export default function HomePage() {
 
   function toggleSelectedWord(wordId) {
     setGame((prev) => {
-      const exists = prev.selectedWordIds.includes(wordId);
+      const nextSelected = new Set(prev.selectedWordIds);
+      if (nextSelected.has(wordId)) {
+        nextSelected.delete(wordId);
+      } else {
+        nextSelected.add(wordId);
+      }
       return {
         ...prev,
-        selectedWordIds: exists ? prev.selectedWordIds.filter((id) => id !== wordId) : [...prev.selectedWordIds, wordId],
+        selectedWordIds: [...nextSelected],
         errorMessage: ''
       };
     });
@@ -979,9 +1038,14 @@ export default function HomePage() {
             {game.questionMode === 'select' && (
               <div className="selectArea">
                 <p className="selectedCount">選択中：{game.selectedWordIds.length}語</p>
-                <button type="button" className="openWordModalBtn" onClick={() => void openWordPicker()}>
-                  単語を選ぶ
-                </button>
+                <div className="selectAreaActions">
+                  <button type="button" className="openWordModalBtn primaryOpen" onClick={() => void openWordPicker()}>
+                    単語を選ぶ
+                  </button>
+                  <button type="button" className="openWordModalBtn" onClick={() => void openWordPicker()}>
+                    保存済みセットから選ぶ
+                  </button>
+                </div>
               </div>
             )}
             <p className="sectionLabel">出題スピード</p>
@@ -1161,102 +1225,160 @@ export default function HomePage() {
         )}
       </section>
       {game.screen === 'intro' && game.questionMode === 'select' && game.isWordPickerOpen && (
-        <div className="modalOverlay" role="dialog" aria-modal="true" aria-label="単語を選ぶ">
-          <div className="wordPickerModal">
-            <div className="wordPickerHeader">
-              <h2>単語を選ぶ</h2>
-              <button type="button" onClick={() => setGame((prev) => ({ ...prev, isWordPickerOpen: false }))}>閉じる</button>
-            </div>
-            <div className="pickerTopControls">
-              <input className="searchInput" placeholder="検索: english / japanese / phonetic / example / 品詞 / カテゴリ" value={game.wordSearch} onChange={(event) => setGame((prev) => ({ ...prev, wordSearch: event.target.value }))} />
-              <div className="primaryActions">
-                <p className="selectedCount">選択数: {selectedCount}件 / 表示中: {filteredWords.length}件</p>
-                <button type="button" className="retryBtn primary compact" onClick={() => setGame((prev) => ({ ...prev, isWordPickerOpen: false }))}>決定</button>
+        <div className="wordPickerScreen" role="dialog" aria-modal="true" aria-label="単語を選ぶ">
+          <div className="wordPickerShell">
+            <header className="wordPickerHeader">
+              <div>
+                <p className="wordPickerEyebrow">Selection mode</p>
+                <h2>単語を選ぶ</h2>
               </div>
-            </div>
-            <div className="filterRowCompact">
-              <label><input type="checkbox" checked={game.filters.importantOnly} onChange={(event) => setFilterValue('importantOnly', event.target.checked)} /> 重要のみ</label>
-              <label><input type="checkbox" checked={game.filters.selectedOnly} disabled={selectedOnlyDisabled} onChange={(event) => setFilterValue('selectedOnly', event.target.checked)} /> 選択済みだけ表示</label>
+              <button type="button" className="pickerCloseBtn" onClick={() => setGame((prev) => ({ ...prev, isWordPickerOpen: false }))}>閉じる</button>
+            </header>
+
+            <section className="pickerControlPanel" aria-label="検索とフィルター">
+              <div className="pickerSearchRow">
+                <input
+                  className="searchInput pickerSearchInput"
+                  placeholder="英語・日本語・発音・カテゴリで検索"
+                  value={game.wordSearch}
+                  onChange={(event) => setGame((prev) => ({ ...prev, wordSearch: event.target.value }))}
+                />
+                <div className="pickerDecisionBox">
+                  <span className="selectedCountStrong">選択中：{selectedCount}語</span>
+                  <button type="button" className="retryBtn primary compact" onClick={() => setGame((prev) => ({ ...prev, isWordPickerOpen: false }))}>決定</button>
+                </div>
+              </div>
+
+              <div className="basicFilters" aria-label="基本フィルター">
+                {BASIC_FILTER_KEYS.map((key) => (
+                  <select key={key} className="filterSelect" value={game.filters[key]} onChange={(event) => setFilterValue(key, event.target.value)}>
+                    <option value="">{key}</option>
+                    {(filterOptions[key] || []).map((value) => <option key={value} value={value}>{value}</option>)}
+                  </select>
+                ))}
+                <label className={`pillCheck ${game.filters.importantOnly ? 'active' : ''}`}>
+                  <input type="checkbox" checked={game.filters.importantOnly} onChange={(event) => setFilterValue('importantOnly', event.target.checked)} />
+                  重要のみ
+                </label>
+              </div>
+
               <details className="filterDetails">
-                <summary>詳細フィルター</summary>
-                <div className="filterGrid">
-                  {FILTER_KEYS.map((key) => (
+                <summary>詳細フィルターを開く</summary>
+                <div className="filterGrid detailFilterGrid">
+                  {DETAIL_FILTER_KEYS.map((key) => (
                     <select key={key} className="filterSelect" value={game.filters[key]} onChange={(event) => setFilterValue(key, event.target.value)}>
                       <option value="">{key}</option>
                       {(filterOptions[key] || []).map((value) => <option key={value} value={value}>{value}</option>)}
                     </select>
                   ))}
+                  <label className={`pillCheck ${game.filters.selectedOnly ? 'active' : ''} ${selectedOnlyDisabled ? 'disabled' : ''}`}>
+                    <input type="checkbox" checked={game.filters.selectedOnly} disabled={selectedOnlyDisabled} onChange={(event) => setFilterValue('selectedOnly', event.target.checked)} />
+                    選択済みだけ表示
+                  </label>
                 </div>
               </details>
-            </div>
-            {selectedOnlyDisabled && (
-              <p className="wordListHint">まだ選択された単語はありません</p>
-            )}
-            {onlyImportantAndSelectedActive && shouldShowWordListEmptyState && (
-              <p className="wordListHint">「重要のみ」と「選択済みだけ表示」の条件に合う単語がありません</p>
-            )}
-            <div className="bulkRow">
-              <button type="button" onClick={() => selectVisible(true)}>表示中をすべて選択</button>
-              <button type="button" onClick={() => selectVisible(false)}>表示中をすべて解除</button>
-              <button type="button" onClick={() => selectAll(true)}>すべて選択</button>
-              <button type="button" onClick={() => selectAll(false)}>すべて解除</button>
-            </div>
-            <div className="wordList inModal">
-              {shouldShowWordListEmptyState && (
-                <div className="wordListEmpty">
-                  <p>条件に合う単語がありません</p>
-                  <p>フィルターを少し減らしてください</p>
-                </div>
-              )}
-              {filteredWords.map((word) => (
-                <WordListItem
-                  key={word.id}
-                  word={word}
-                  selected={selectedWordIdSet.has(word.id)}
-                  isImportant={isImportantWord(word)}
-                  onToggle={toggleSelectedWord}
-                  onSpeak={speak}
-                />
-              ))}
-            </div>
-            <details className="wordSetPanel">
-              <summary className="sectionLabel">保存セット</summary>
-              <p className="sectionLabel">セットとして保存</p>
-              <div className="wordSetSaveRow">
-                <input
-                  className="wordSetInput"
-                  placeholder="セット名を入力"
-                  value={game.newWordSetName}
-                  onChange={(event) => setGame((prev) => ({ ...prev, newWordSetName: event.target.value, wordSetMessage: '', wordSetMessageType: '' }))}
-                />
-                <button type="button" className="retryBtn secondaryAction" onClick={() => void handleSaveWordSet()} disabled={!canSaveWordSet}>
-                  セットとして保存
-                </button>
+
+              <div className="bulkRow pickerBulkRow">
+                <button type="button" onClick={() => selectVisible(true)}>条件に合う表示中をすべて選択</button>
+                <button type="button" onClick={() => selectVisible(false)}>表示中をすべて解除</button>
+                <button type="button" onClick={() => selectAll(false)}>すべて解除</button>
+                <span className="visibleCount">表示中：{filteredWords.length}語</span>
               </div>
-              {game.wordSetMessage && <p className={`wordSetMessage ${game.wordSetMessageType === 'error' ? 'error' : 'success'}`}>{game.wordSetMessage}</p>}
-              {game.wordSetFetchError && <p className="wordSetInlineNotice">保存済みセットを読み込めませんでした。単語選択はそのまま使えます。</p>}
-              <div className="savedWordSets">
-                <p className="sectionLabel">保存済みセット</p>
-                {!game.wordSets.length ? (
-                  <p className="emptyWordSets">保存済みセットはありません。</p>
-                ) : (
-                  <div className="savedWordSetList">
-                    {game.wordSets.map((setItem) => (
-                      <div key={setItem.id} className="savedWordSetItem">
-                        <div className="savedWordSetInfo">
-                          <strong>{setItem.name}</strong>
-                          <span>{setItem.word_count ?? 0}語</span>
-                        </div>
-                        <div className="savedWordSetActions">
-                          <button type="button" onClick={() => void handleStartFromWordSet(setItem.id)}>このセットで出題</button>
-                          <button type="button" onClick={() => void handleDeleteWordSet(setItem.id)}>削除</button>
-                        </div>
+
+              {selectedOnlyDisabled && (
+                <p className="wordListHint">まだ選択された単語はありません</p>
+              )}
+              {onlyImportantAndSelectedActive && shouldShowWordListEmptyState && (
+                <p className="wordListHint">「重要のみ」と「選択済みだけ表示」の条件に合う単語がありません</p>
+              )}
+
+              <details className="wordSetPanel">
+                <summary>保存済みセットから選ぶ / セットとして保存</summary>
+                <div className="wordSetPanelBody">
+                  <div className="wordSetSaveBox">
+                    <p className="sectionLabel">セットとして保存</p>
+                    <div className="wordSetSaveRow">
+                      <input
+                        className="wordSetInput"
+                        placeholder="セット名を入力"
+                        value={game.newWordSetName}
+                        onChange={(event) => setGame((prev) => ({ ...prev, newWordSetName: event.target.value, wordSetMessage: '', wordSetMessageType: '' }))}
+                      />
+                      <button type="button" className="retryBtn secondaryAction" onClick={() => void handleSaveWordSet()} disabled={!canSaveWordSet}>
+                        保存
+                      </button>
+                    </div>
+                    {game.wordSetMessage && <p className={`wordSetMessage ${game.wordSetMessageType === 'error' ? 'error' : 'success'}`}>{game.wordSetMessage}</p>}
+                    {game.wordSetFetchError && <p className="wordSetInlineNotice">保存済みセットを読み込めませんでした。単語選択はそのまま使えます。</p>}
+                  </div>
+                  <div className="savedWordSets">
+                    <p className="sectionLabel">保存済みセット</p>
+                    {!game.wordSets.length ? (
+                      <p className="emptyWordSets">保存済みセットはありません。</p>
+                    ) : (
+                      <div className="savedWordSetList">
+                        {game.wordSets.map((setItem) => (
+                          <div key={setItem.id} className="savedWordSetItem">
+                            <div className="savedWordSetInfo">
+                              <strong>{setItem.name}</strong>
+                              <span>{setItem.word_count ?? 0}語</span>
+                            </div>
+                            <div className="savedWordSetActions">
+                              <button type="button" onClick={() => void handleStartFromWordSet(setItem.id)}>このセットで出題</button>
+                              <button type="button" onClick={() => void handleDeleteWordSet(setItem.id)}>削除</button>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    )}
+                  </div>
+                </div>
+              </details>
+            </section>
+
+            <section className="wordListPanel" aria-label="単語一覧">
+              <div className="wordListHeader">
+                <h3>単語一覧</h3>
+                <span>{filteredWords.length}語</span>
+              </div>
+              <div className="wordList inModal">
+                {shouldShowWordListEmptyState && (
+                  <div className="wordListEmpty">
+                    <p>条件に合う単語がありません</p>
+                    <p>検索やフィルターを少し減らしてください</p>
                   </div>
                 )}
+                {filteredWords.map((word) => (
+                  <WordRow
+                    key={word.id}
+                    word={word}
+                    selected={selectedWordIdSet.has(word.id)}
+                    isImportant={isImportantWord(word)}
+                    onToggle={toggleSelectedWord}
+                    onSpeak={speak}
+                  />
+                ))}
               </div>
-            </details>
+            </section>
+
+            <div className="pickerBottomBar">
+              <span>選択中：<strong>{selectedCount}</strong>語</span>
+              <div className="pickerBottomActions">
+                <details className="bottomSavePanel">
+                  <summary>セットとして保存</summary>
+                  <div className="bottomSavePopover">
+                    <input
+                      className="wordSetInput"
+                      placeholder="セット名を入力"
+                      value={game.newWordSetName}
+                      onChange={(event) => setGame((prev) => ({ ...prev, newWordSetName: event.target.value, wordSetMessage: '', wordSetMessageType: '' }))}
+                    />
+                    <button type="button" className="retryBtn secondaryAction" onClick={() => void handleSaveWordSet()} disabled={!canSaveWordSet}>保存</button>
+                  </div>
+                </details>
+                <button type="button" className="retryBtn primary compact" onClick={() => setGame((prev) => ({ ...prev, isWordPickerOpen: false }))}>決定</button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -1625,6 +1747,565 @@ export default function HomePage() {
           }
           .primaryActions {
             justify-content: space-between;
+          }
+        }
+
+        .selectArea {
+          margin-top: 0.8rem;
+          padding: 12px;
+          border: 1px solid #dce8f8;
+          border-radius: 16px;
+          background: #f8fbff;
+          text-align: left;
+        }
+        .selectAreaActions {
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: 8px;
+        }
+        .openWordModalBtn {
+          border: 1px solid #c7d8f0;
+          border-radius: 12px;
+          background: #ffffff;
+          padding: 0.75em 0.9em;
+          color: #486287;
+          font-weight: 700;
+          cursor: pointer;
+        }
+        .openWordModalBtn.primaryOpen {
+          background: #e8f4ff;
+          border-color: #9bc7f1;
+          color: #2f6da8;
+        }
+        .wordPickerScreen {
+          position: fixed;
+          inset: 0;
+          z-index: 1000;
+          background: linear-gradient(180deg, #f5f9ff 0%, #edf6ff 100%);
+          padding: 14px;
+        }
+        .wordPickerShell {
+          width: min(1180px, 100%);
+          height: 100%;
+          margin: 0 auto;
+          display: grid;
+          grid-template-rows: auto auto minmax(0, 1fr) auto;
+          gap: 10px;
+          color: #486287;
+        }
+        .wordPickerHeader {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+          padding: 10px 4px 4px;
+        }
+        .wordPickerEyebrow {
+          margin: 0 0 2px;
+          color: #7b96b8;
+          font-size: 0.72rem;
+          font-weight: 800;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+        }
+        .wordPickerHeader h2 {
+          margin: 0;
+          color: #315d91;
+          font-size: clamp(1.35rem, 3vw, 2rem);
+        }
+        .pickerCloseBtn {
+          border: 1px solid #c7d8f0;
+          border-radius: 999px;
+          background: #ffffff;
+          color: #486287;
+          padding: 0.65em 1em;
+          font-weight: 700;
+          cursor: pointer;
+        }
+        .pickerControlPanel,
+        .wordListPanel {
+          border: 1px solid #dce8f8;
+          border-radius: 18px;
+          background: rgba(255, 255, 255, 0.96);
+          box-shadow: 0 10px 28px rgba(75, 115, 160, 0.08);
+        }
+        .pickerControlPanel {
+          padding: 12px;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .pickerSearchRow {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 12px;
+          align-items: center;
+        }
+        .pickerSearchInput,
+        .searchInput {
+          width: 100%;
+          border: 1px solid #cbdcf3;
+          border-radius: 14px;
+          background: #ffffff;
+          color: #35577f;
+          padding: 0.85em 1em;
+          font-size: 1rem;
+          outline: none;
+        }
+        .pickerSearchInput:focus,
+        .wordSetInput:focus,
+        .filterSelect:focus {
+          border-color: #7fb1e8;
+          box-shadow: 0 0 0 3px rgba(127, 177, 232, 0.18);
+        }
+        .pickerDecisionBox,
+        .pickerBottomActions,
+        .basicFilters,
+        .pickerBulkRow {
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+        .selectedCountStrong {
+          color: #315d91;
+          font-weight: 800;
+          white-space: nowrap;
+        }
+        .basicFilters {
+          align-items: stretch;
+        }
+        .filterSelect {
+          min-width: 128px;
+          border: 1px solid #d0dbf1;
+          border-radius: 999px;
+          background: #f8fbff;
+          color: #486287;
+          padding: 0.65em 0.9em;
+          font-size: 0.9rem;
+        }
+        .pillCheck {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          border: 1px solid #d0dbf1;
+          border-radius: 999px;
+          background: #f8fbff;
+          padding: 0.6em 0.9em;
+          color: #486287;
+          font-size: 0.9rem;
+          font-weight: 700;
+        }
+        .pillCheck.active {
+          background: #e3f1ff;
+          border-color: #8fc0ef;
+          color: #2f6da8;
+        }
+        .pillCheck.disabled {
+          opacity: 0.55;
+        }
+        .filterDetails {
+          text-align: left;
+        }
+        .filterDetails summary,
+        .wordSetPanel summary,
+        .bottomSavePanel summary {
+          cursor: pointer;
+          color: #426b9b;
+          font-weight: 800;
+          list-style: none;
+        }
+        .filterDetails summary::-webkit-details-marker,
+        .wordSetPanel summary::-webkit-details-marker,
+        .bottomSavePanel summary::-webkit-details-marker {
+          display: none;
+        }
+        .filterDetails summary::before,
+        .wordSetPanel summary::before,
+        .bottomSavePanel summary::before {
+          content: '＋';
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 1.4em;
+          height: 1.4em;
+          margin-right: 0.35em;
+          border-radius: 999px;
+          background: #e8f4ff;
+          color: #2f6da8;
+        }
+        .filterDetails[open] summary::before,
+        .wordSetPanel[open] summary::before,
+        .bottomSavePanel[open] summary::before {
+          content: '−';
+        }
+        .detailFilterGrid {
+          grid-template-columns: repeat(5, minmax(130px, 1fr));
+          margin-top: 8px;
+        }
+        .pickerBulkRow {
+          margin-top: 0;
+        }
+        .pickerBulkRow button,
+        .bulkRow button {
+          border: 1px solid #bad2ef;
+          border-radius: 12px;
+          background: #ffffff;
+          color: #486287;
+          padding: 0.55em 0.75em;
+          font-size: 0.86rem;
+          font-weight: 700;
+          cursor: pointer;
+        }
+        .visibleCount {
+          margin-left: auto;
+          color: #6a83a6;
+          font-size: 0.85rem;
+          font-weight: 700;
+        }
+        .wordSetPanel {
+          border: 1px solid #e0eaf8;
+          border-radius: 14px;
+          background: #fbfdff;
+          padding: 10px;
+          text-align: left;
+          flex: 0 0 auto;
+        }
+        .wordSetPanelBody {
+          display: grid;
+          grid-template-columns: minmax(260px, 0.8fr) minmax(320px, 1.2fr);
+          gap: 12px;
+          margin-top: 10px;
+        }
+        .wordSetSaveRow,
+        .bottomSavePopover {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+        }
+        .wordSetInput {
+          flex: 1;
+          min-width: 0;
+          padding: 0.7em 0.85em;
+          border: 1px solid #d0dbf1;
+          border-radius: 12px;
+          font-size: 0.95rem;
+        }
+        .savedWordSetList {
+          max-height: 132px;
+          overflow: auto;
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+          gap: 8px;
+        }
+        .savedWordSetItem {
+          border: 1px solid #d5e1f3;
+          border-radius: 12px;
+          padding: 8px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 10px;
+          background: #ffffff;
+        }
+        .savedWordSetInfo {
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          font-size: 0.86rem;
+        }
+        .savedWordSetInfo strong {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .savedWordSetActions {
+          display: flex;
+          flex-direction: column;
+          gap: 5px;
+          flex: 0 0 auto;
+        }
+        .savedWordSetActions button {
+          border: 1px solid #c7d8f0;
+          border-radius: 9px;
+          background: #f8fbff;
+          padding: 0.35em 0.55em;
+          color: #486287;
+          font-size: 0.75rem;
+          font-weight: 700;
+          cursor: pointer;
+        }
+        .wordListPanel {
+          min-height: 0;
+          padding: 10px;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .wordListHeader {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          color: #5a7498;
+          padding: 0 2px;
+        }
+        .wordListHeader h3 {
+          margin: 0;
+          font-size: 1rem;
+        }
+        .wordList.inModal {
+          flex: 1 1 auto;
+          min-height: 0;
+          height: 100%;
+          max-height: none;
+          overflow: auto;
+          border: 1px solid #e2eaf7;
+          border-radius: 14px;
+          background: #f8fbff;
+          padding: 6px;
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .wordRowItem {
+          position: relative;
+          width: 100%;
+          display: grid;
+          grid-template-columns: 28px minmax(0, 1fr) 42px;
+          align-items: center;
+          gap: 8px;
+          border: 1px solid #dce7f6;
+          border-left: 4px solid transparent;
+          border-radius: 12px;
+          background: #ffffff;
+          color: #365b86;
+          padding: 8px 9px 8px 8px;
+          text-align: left;
+          cursor: pointer;
+        }
+        .wordRowItem:hover {
+          border-color: #b9d2ef;
+          background: #fbfdff;
+        }
+        .wordRowItem.selected {
+          background: #e5f3ff;
+          border-color: #9ac8f3;
+          border-left-color: #3f8ed7;
+          box-shadow: inset 0 0 0 1px rgba(63, 142, 215, 0.14);
+        }
+        .wordCheck {
+          width: 22px;
+          height: 22px;
+          border: 2px solid #b8cce6;
+          border-radius: 7px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          color: #ffffff;
+          background: #ffffff;
+          font-weight: 900;
+          line-height: 1;
+        }
+        .wordRowItem.selected .wordCheck {
+          border-color: #3f8ed7;
+          background: #3f8ed7;
+        }
+        .wordRowMain {
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .wordTitleLine {
+          min-width: 0;
+          display: flex;
+          align-items: baseline;
+          gap: 10px;
+        }
+        .wordEnglish {
+          color: #1f4f84;
+          font-size: 1.08rem;
+          letter-spacing: 0.01em;
+          white-space: nowrap;
+        }
+        .wordJapanese {
+          color: #3f5f84;
+          font-size: 0.95rem;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .wordMetaLine {
+          min-width: 0;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .wordPhonetic {
+          flex: 0 0 auto;
+          color: #7890ad;
+          font-size: 0.82rem;
+        }
+        .wordTags {
+          min-width: 0;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 4px;
+        }
+        .wordTag {
+          border-radius: 999px;
+          background: #eef5ff;
+          color: #526f93;
+          padding: 2px 7px;
+          font-size: 0.68rem;
+          font-weight: 800;
+          line-height: 1.35;
+        }
+        .wordTag.important {
+          background: #ffe7ec;
+          color: #b62545;
+        }
+        .wordTag.unseen {
+          background: #edf8f0;
+          color: #33834b;
+        }
+        .wordSpeaker {
+          justify-self: end;
+          width: 34px;
+          height: 34px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 999px;
+          background: #eef6ff;
+          font-size: 1rem;
+        }
+        .pickerBottomBar {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+          padding: 10px 12px;
+          border: 1px solid #cfe0f5;
+          border-radius: 18px;
+          background: rgba(255, 255, 255, 0.98);
+          box-shadow: 0 -8px 24px rgba(75, 115, 160, 0.10);
+          color: #315d91;
+          font-weight: 800;
+        }
+        .bottomSavePanel {
+          position: relative;
+        }
+        .bottomSavePanel summary {
+          border: 1px solid #bad2ef;
+          border-radius: 12px;
+          background: #ffffff;
+          padding: 0.55em 0.75em;
+          font-size: 0.86rem;
+        }
+        .bottomSavePopover {
+          position: absolute;
+          right: 0;
+          bottom: calc(100% + 8px);
+          width: min(360px, 80vw);
+          border: 1px solid #d5e1f3;
+          border-radius: 14px;
+          background: #ffffff;
+          padding: 10px;
+          box-shadow: 0 14px 34px rgba(63, 94, 130, 0.18);
+          z-index: 2;
+        }
+        @media (max-width: 780px) {
+          .wordPickerScreen {
+            padding: 8px;
+          }
+          .wordPickerShell {
+            gap: 8px;
+          }
+          .wordPickerHeader {
+            padding-top: 4px;
+          }
+          .pickerControlPanel {
+            padding: 10px;
+            gap: 8px;
+          }
+          .pickerSearchRow {
+            grid-template-columns: 1fr;
+            gap: 8px;
+          }
+          .pickerDecisionBox {
+            justify-content: space-between;
+          }
+          .basicFilters {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+          .filterSelect {
+            width: 100%;
+            min-width: 0;
+          }
+          .detailFilterGrid,
+          .wordSetPanelBody {
+            grid-template-columns: 1fr;
+          }
+          .pickerBulkRow {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+          }
+          .pickerBulkRow button:first-child,
+          .visibleCount {
+            grid-column: 1 / -1;
+          }
+          .visibleCount {
+            margin-left: 0;
+          }
+          .wordListHeader {
+            display: none;
+          }
+          .wordListPanel {
+            padding: 6px;
+          }
+          .wordRowItem {
+            grid-template-columns: 26px minmax(0, 1fr) 36px;
+            gap: 6px;
+            padding: 7px 7px 7px 6px;
+            border-radius: 11px;
+          }
+          .wordTitleLine {
+            gap: 6px;
+          }
+          .wordEnglish {
+            font-size: 1rem;
+          }
+          .wordJapanese {
+            font-size: 0.88rem;
+          }
+          .wordMetaLine {
+            align-items: flex-start;
+            flex-direction: column;
+            gap: 3px;
+          }
+          .wordTags {
+            max-height: 40px;
+            overflow: hidden;
+          }
+          .wordSpeaker {
+            width: 32px;
+            height: 32px;
+          }
+          .pickerBottomBar {
+            padding: 8px;
+            border-radius: 14px;
+          }
+          .pickerBottomActions {
+            gap: 6px;
+          }
+          .bottomSavePanel summary::before {
+            display: none;
+          }
+          .bottomSavePanel summary {
+            padding: 0.55em 0.65em;
           }
         }
 
