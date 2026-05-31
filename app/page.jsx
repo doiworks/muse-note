@@ -2394,26 +2394,33 @@ export default function HomePage() {
         }
 
         .wordRowItem {
-          grid-template-columns: 5px minmax(0, 1fr) 40px;
+          grid-template-columns: 7px minmax(0, 1fr) 40px;
           gap: 10px;
           min-height: 54px;
           padding: 8px 10px 8px 0;
-          border-left-width: 1px;
+          border: 1px solid #dce7f6;
           background: #ffffff;
+          box-shadow: 0 3px 12px rgba(60, 100, 145, 0.05);
         }
         .wordRowItem.selected {
-          background: #e3f2ff;
-          border-color: #8bc4f3;
-          box-shadow: inset 5px 0 0 #2584d9, 0 8px 22px rgba(37, 132, 217, 0.12);
+          background: #d8edff;
+          border-color: #4d9fe8;
+          box-shadow: inset 0 0 0 1px rgba(37, 132, 217, 0.24), 0 10px 24px rgba(37, 132, 217, 0.18);
+        }
+        .wordRowItem.selected:hover {
+          background: #d8edff;
+          border-color: #2f8ed8;
+          box-shadow: inset 0 0 0 1px rgba(37, 132, 217, 0.28), 0 12px 26px rgba(37, 132, 217, 0.20);
         }
         .wordSelectionRail {
-          width: 5px;
-          height: calc(100% - 14px);
-          border-radius: 0 999px 999px 0;
+          width: 7px;
+          height: 100%;
+          align-self: stretch;
+          border-radius: 14px 0 0 14px;
           background: transparent;
         }
         .wordRowItem.selected .wordSelectionRail {
-          background: #2584d9;
+          background: #1f7fd1;
         }
         .wordRowMain {
           display: flex;
@@ -2727,7 +2734,7 @@ export default function HomePage() {
           min-height: 0;
         }
         .wordRowItem {
-          grid-template-columns: 5px minmax(180px, 1fr) minmax(190px, 0.72fr) 36px;
+          grid-template-columns: 7px minmax(180px, 1fr) minmax(190px, 0.72fr) 36px;
           gap: 10px;
           min-height: 54px;
           align-items: center;
@@ -2744,18 +2751,24 @@ export default function HomePage() {
           box-shadow: 0 8px 18px rgba(60, 100, 145, 0.08);
         }
         .wordRowItem.selected {
-          background: #e8f4ff;
-          border-color: #68aee8;
-          box-shadow: inset 5px 0 0 #2584d9, 0 8px 22px rgba(37, 132, 217, 0.12);
+          background: #d8edff;
+          border-color: #4d9fe8;
+          box-shadow: inset 0 0 0 1px rgba(37, 132, 217, 0.24), 0 10px 24px rgba(37, 132, 217, 0.18);
+        }
+        .wordRowItem.selected:hover {
+          background: #d8edff;
+          border-color: #2f8ed8;
+          box-shadow: inset 0 0 0 1px rgba(37, 132, 217, 0.28), 0 12px 26px rgba(37, 132, 217, 0.20);
         }
         .wordSelectionRail {
-          width: 5px;
-          height: calc(100% - 12px);
-          border-radius: 0 999px 999px 0;
+          width: 7px;
+          height: 100%;
+          align-self: stretch;
+          border-radius: 14px 0 0 14px;
           background: transparent;
         }
         .wordRowItem.selected .wordSelectionRail {
-          background: #2584d9;
+          background: #1f7fd1;
         }
         .wordPrimaryInfo {
           min-width: 0;
@@ -2960,11 +2973,14 @@ export default function HomePage() {
             padding: 6px;
           }
           .wordRowItem {
-            grid-template-columns: 5px minmax(96px, 1fr) minmax(84px, 0.78fr) 30px;
+            grid-template-columns: 7px minmax(96px, 1fr) minmax(84px, 0.78fr) 30px;
             gap: 5px;
             min-height: 52px;
             padding: 6px 6px 6px 0;
             border-radius: 11px;
+          }
+          .wordSelectionRail {
+            border-radius: 11px 0 0 11px;
           }
           .wordTitleLine {
             gap: 6px;
