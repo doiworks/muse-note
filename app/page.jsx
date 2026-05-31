@@ -112,6 +112,20 @@ function isImportantWord(word) {
   return Number(word.importance) === 1;
 }
 
+function matchesWordFilters(word, filters, selectedWordIdSet) {
+  return (
+    (!filters.school_level || String(word.school_level) === filters.school_level) &&
+    (!filters.grade || String(word.grade) === filters.grade) &&
+    (!filters.term || String(word.term) === filters.term) &&
+    (!filters.exam_type || String(word.exam_type) === filters.exam_type) &&
+    (!filters.category1 || String(word.category1) === filters.category1) &&
+    (!filters.category2 || String(word.category2) === filters.category2) &&
+    (!filters.category3 || String(word.category3) === filters.category3) &&
+    (!filters.importantOnly || isImportantWord(word)) &&
+    (!filters.selectedOnly || selectedWordIdSet.has(word.id))
+  );
+}
+
 function shuffleLocal(items) {
   const shuffled = [...items];
   for (let i = shuffled.length - 1; i > 0; i -= 1) {
@@ -194,22 +208,19 @@ const WordRow = memo(function WordRow({ word, selected, isImportant, onToggle, o
       tabIndex={0}
       aria-pressed={selected}
     >
-      <span className="wordCheck" aria-hidden="true">{selected ? '✓' : ''}</span>
+      <span className="wordSelectionRail" aria-hidden="true" />
       <span className="wordRowMain">
-        <span className="wordTitleLine">
-          <strong className="wordEnglish">{word.english}</strong>
-          <span className="wordJapanese">{word.japanese}</span>
+        <strong className="wordEnglish">{word.english}</strong>
+        <span className="wordJapanese">{word.japanese}</span>
+        {word.phonetic ? <span className="wordPhonetic">{word.phonetic}</span> : null}
+        <span className="wordTags">
+          {tags.map((tag, index) => (
+            <span className={`wordTag ${tag === '重要' ? 'important' : ''} ${tag === '未出題' ? 'unseen' : ''}`} key={`${word.id}-${tag}-${index}`}>
+              {tag}
+            </span>
+          ))}
         </span>
-        <span className="wordMetaLine">
-          {word.phonetic ? <span className="wordPhonetic">{word.phonetic}</span> : null}
-          <span className="wordTags">
-            {tags.map((tag, index) => (
-              <span className={`wordTag ${tag === '重要' ? 'important' : ''} ${tag === '未出題' ? 'unseen' : ''}`} key={`${word.id}-${tag}-${index}`}>
-                {tag}
-              </span>
-            ))}
-          </span>
-        </span>
+        <span className="srOnly">{selected ? '選択中' : '未選択'}</span>
       </span>
       <span
         className="wordSpeaker"
@@ -246,26 +257,20 @@ export default function HomePage() {
     return acc;
   }, {}), [game.selectableWords]);
   const normalizedWordSearch = useMemo(() => normalizeText(game.wordSearch), [game.wordSearch]);
-  const filteredWords = useMemo(() => game.selectableWords.filter((word) => {
-    const matchesKeyword =
-      !normalizedWordSearch ||
-      ['english', 'japanese', 'phonetic', 'example', 'pos_j', 'category1', 'category2', 'category3', 'exam_type'].some((field) =>
-        normalizeText(word[field]).includes(normalizedWordSearch)
-      );
-    if (!matchesKeyword) return false;
-    const { filters } = game;
-    const matchesFilters =
-      (!filters.school_level || String(word.school_level) === filters.school_level) &&
-      (!filters.grade || String(word.grade) === filters.grade) &&
-      (!filters.term || String(word.term) === filters.term) &&
-      (!filters.exam_type || String(word.exam_type) === filters.exam_type) &&
-      (!filters.category1 || String(word.category1) === filters.category1) &&
-      (!filters.category2 || String(word.category2) === filters.category2) &&
-      (!filters.category3 || String(word.category3) === filters.category3) &&
-      (!filters.importantOnly || isImportantWord(word)) &&
-      (!filters.selectedOnly || selectedWordIdSet.has(word.id));
-    return matchesFilters;
-  }), [game.selectableWords, normalizedWordSearch, game.filters, selectedWordIdSet]);
+  const keywordMatchedWords = useMemo(() => game.selectableWords.filter((word) => (
+    !normalizedWordSearch ||
+    ['english', 'japanese', 'phonetic', 'example', 'pos_j', 'category1', 'category2', 'category3', 'exam_type'].some((field) =>
+      normalizeText(word[field]).includes(normalizedWordSearch)
+    )
+  )), [game.selectableWords, normalizedWordSearch]);
+
+  const filteredWords = useMemo(() => keywordMatchedWords.filter((word) => (
+    matchesWordFilters(word, game.filters, selectedWordIdSet)
+  )), [keywordMatchedWords, game.filters, selectedWordIdSet]);
+
+  const draftFilteredWordCount = useMemo(() => keywordMatchedWords.filter((word) => (
+    matchesWordFilters(word, game.draftFilters, selectedWordIdSet)
+  )).length, [keywordMatchedWords, game.draftFilters, selectedWordIdSet]);
 
   const selectedCount = game.selectedWordIds.length;
   const selectedOnlyDisabled = selectedCount === 0;
@@ -949,6 +954,7 @@ export default function HomePage() {
       setGame((prev) => ({ ...prev, wordSetMessage: 'セット名を入力してください。', wordSetMessageType: 'error' }));
       return;
     }
+    const savingCount = game.selectedWordIds.length;
     try {
       const response = await fetch('/api/word-sets', {
         method: 'POST',
@@ -958,7 +964,7 @@ export default function HomePage() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || '保存に失敗しました。');
       const sets = await fetchWordSets();
-      setGame((prev) => ({ ...prev, wordSets: sets, newWordSetName: '', wordSetMessage: '保存しました', wordSetMessageType: 'success', wordSetFetchError: '' }));
+      setGame((prev) => ({ ...prev, wordSets: sets, newWordSetName: '', wordSetMessage: `${savingCount}語を保存しました`, wordSetMessageType: 'success', wordSetFetchError: '' }));
     } catch (error) {
       setGame((prev) => ({ ...prev, wordSetMessage: error.message || '保存に失敗しました。', wordSetMessageType: 'error' }));
     }
@@ -1381,6 +1387,10 @@ export default function HomePage() {
                     </div>
                     <button type="button" className="panelCloseButton" onClick={closeWordPickerPanel}>閉じる</button>
                   </div>
+                  <div className="panelCountRow" aria-live="polite">
+                    <span>選択中：<strong>{selectedCount}</strong>語</span>
+                    <span>表示中：<strong>{draftFilteredWordCount}</strong>語</span>
+                  </div>
                   <div className="filterGrid categoryFilterGrid">
                     {FILTER_KEYS.map((key) => (
                       <label key={key} className="filterField">
@@ -1391,13 +1401,13 @@ export default function HomePage() {
                         </select>
                       </label>
                     ))}
-                    <label className={`pillCheck ${game.draftFilters.importantOnly ? 'active' : ''}`}>
+                    <label className={`pillCheck filterToggleField ${game.draftFilters.importantOnly ? 'active' : ''}`}>
                       <input type="checkbox" checked={game.draftFilters.importantOnly} onChange={(event) => setDraftFilterValue('importantOnly', event.target.checked)} />
-                      重要のみ
+                      <span>重要のみ</span>
                     </label>
-                    <label className={`pillCheck ${game.draftFilters.selectedOnly ? 'active' : ''} ${selectedOnlyDisabled ? 'disabled' : ''}`}>
+                    <label className={`pillCheck filterToggleField ${game.draftFilters.selectedOnly ? 'active' : ''} ${selectedOnlyDisabled ? 'disabled' : ''}`}>
                       <input type="checkbox" checked={game.draftFilters.selectedOnly} disabled={selectedOnlyDisabled} onChange={(event) => setDraftFilterValue('selectedOnly', event.target.checked)} />
-                      選択済みだけ表示
+                      <span>選択済みだけ表示</span>
                     </label>
                   </div>
                   {selectedOnlyDisabled && <p className="wordListHint">まだ選択された単語はありません</p>}
@@ -1420,7 +1430,11 @@ export default function HomePage() {
                     </div>
                     <button type="button" className="panelCloseButton" onClick={closeWordPickerPanel}>閉じる</button>
                   </div>
-                  <p className="panelLead">選択中の{selectedCount}語に名前を付けて保存します。</p>
+                  <div className="saveCountCard" aria-live="polite">
+                    <span>保存する単語</span>
+                    <strong>{selectedCount}語</strong>
+                  </div>
+                  <p className="panelLead">このセットに{selectedCount}語を保存します。</p>
                   <div className="wordSetSaveRow">
                     <input
                       className="wordSetInput"
@@ -1430,7 +1444,8 @@ export default function HomePage() {
                     />
                     <button type="button" className="retryBtn secondaryAction" onClick={() => void handleSaveWordSet()} disabled={!canSaveWordSet}>保存</button>
                   </div>
-                  {(!game.newWordSetName.trim() || selectedCount === 0) && <p className="wordListHint">セット名と1語以上の選択が必要です。</p>}
+                  {selectedCount === 0 && <p className="wordListHint errorHint">保存する単語を1語以上選択してください。</p>}
+                  {!game.newWordSetName.trim() && <p className="wordListHint errorHint">セット名を入力すると保存できます。</p>}
                   {game.wordSetMessage && <p className={`wordSetMessage ${game.wordSetMessageType === 'error' ? 'error' : 'success'}`}>{game.wordSetMessage}</p>}
                 </section>
               </div>
@@ -1534,6 +1549,18 @@ export default function HomePage() {
           color: #4f6b94;
           font-family: "Zen Maru Gothic", "Noto Sans JP", Inter, sans-serif;
           -webkit-text-size-adjust: 100%;
+        }
+
+        .srOnly {
+          position: absolute;
+          width: 1px;
+          height: 1px;
+          padding: 0;
+          margin: -1px;
+          overflow: hidden;
+          clip: rect(0, 0, 0, 0);
+          white-space: nowrap;
+          border: 0;
         }
 
         .pageShell {
@@ -1655,6 +1682,10 @@ export default function HomePage() {
           font-size: 0.82rem;
           color: #5f789f;
           text-align: left;
+        }
+        .errorHint {
+          color: #bd3c3c;
+          font-weight: 700;
         }
         .filterGrid {
           display: grid;
@@ -2323,6 +2354,63 @@ export default function HomePage() {
           filter: brightness(1.04);
           transform: scale(1.04);
         }
+
+        .wordRowItem {
+          grid-template-columns: 5px minmax(0, 1fr) 40px;
+          gap: 10px;
+          min-height: 54px;
+          padding: 8px 10px 8px 0;
+          border-left-width: 1px;
+          background: #ffffff;
+        }
+        .wordRowItem.selected {
+          background: #e3f2ff;
+          border-color: #8bc4f3;
+          box-shadow: inset 5px 0 0 #2584d9, 0 8px 22px rgba(37, 132, 217, 0.12);
+        }
+        .wordSelectionRail {
+          width: 5px;
+          height: calc(100% - 14px);
+          border-radius: 0 999px 999px 0;
+          background: transparent;
+        }
+        .wordRowItem.selected .wordSelectionRail {
+          background: #2584d9;
+        }
+        .wordRowMain {
+          display: flex;
+          flex-direction: row;
+          align-items: center;
+          gap: 10px;
+          min-width: 0;
+          white-space: nowrap;
+          overflow: hidden;
+        }
+        .wordEnglish {
+          flex: 0 0 auto;
+          font-weight: 900;
+        }
+        .wordJapanese {
+          flex: 0 1 auto;
+          min-width: 5em;
+        }
+        .wordPhonetic {
+          flex: 0 0 auto;
+          color: #8a9fba;
+        }
+        .wordTags {
+          flex: 1 1 auto;
+          flex-wrap: nowrap;
+          overflow: hidden;
+        }
+        .wordTag {
+          flex: 0 0 auto;
+          padding: 2px 6px;
+          font-size: 0.66rem;
+        }
+        .wordSpeaker {
+          flex: 0 0 auto;
+        }
         .pickerBottomBar {
           display: flex;
           justify-content: space-between;
@@ -2517,9 +2605,38 @@ export default function HomePage() {
           font-weight: 800;
           cursor: pointer;
         }
+        .panelCountRow {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 8px;
+        }
+        .panelCountRow span,
+        .saveCountCard {
+          min-height: 44px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          border: 1px solid #cfe0f5;
+          border-radius: 14px;
+          background: #f2f8ff;
+          color: #527195;
+          padding: 0.65em 0.9em;
+          font-size: 0.9rem;
+          font-weight: 800;
+        }
+        .panelCountRow strong,
+        .saveCountCard strong {
+          color: #236aa8;
+          font-size: 1rem;
+        }
+        .saveCountCard {
+          background: linear-gradient(180deg, #eef7ff 0%, #f8fbff 100%);
+        }
         .categoryFilterGrid {
           grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
           margin-top: 0;
+          align-items: end;
         }
         .filterField {
           display: flex;
@@ -2533,7 +2650,30 @@ export default function HomePage() {
         .filterField .filterSelect {
           width: 100%;
           min-width: 0;
+          height: 44px;
           border-radius: 12px;
+          padding: 0 0.85em;
+          background: #ffffff;
+        }
+        .filterToggleField {
+          min-height: 44px;
+          align-self: end;
+          border-radius: 12px;
+          background: #ffffff;
+          padding: 0 0.85em;
+          font-size: 0.9rem;
+          line-height: 1;
+        }
+        .filterToggleField input {
+          width: 18px;
+          height: 18px;
+          margin: 0;
+          accent-color: #3f8ed7;
+        }
+        .filterToggleField span {
+          display: inline-flex;
+          align-items: center;
+          min-height: 42px;
         }
         .panelActions {
           display: flex;
@@ -2635,9 +2775,9 @@ export default function HomePage() {
             padding: 6px;
           }
           .wordRowItem {
-            grid-template-columns: 26px minmax(0, 1fr) 36px;
+            grid-template-columns: 5px minmax(0, 1fr) 34px;
             gap: 6px;
-            padding: 7px 7px 7px 6px;
+            padding: 7px 7px 7px 0;
             border-radius: 11px;
           }
           .wordTitleLine {
@@ -2649,14 +2789,18 @@ export default function HomePage() {
           .wordJapanese {
             font-size: 0.88rem;
           }
-          .wordMetaLine {
-            align-items: flex-start;
-            flex-direction: column;
-            gap: 3px;
+          .wordRowMain {
+            gap: 6px;
+          }
+          .wordPhonetic {
+            display: none;
           }
           .wordTags {
-            max-height: 40px;
+            max-height: 22px;
             overflow: hidden;
+          }
+          .panelCountRow {
+            grid-template-columns: 1fr;
           }
           .wordSpeaker {
             width: 32px;
