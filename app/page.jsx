@@ -236,10 +236,39 @@ const WordRow = memo(function WordRow({ word, selected, isImportant, onToggle, o
         aria-label={`${word.english}を発音`}
         title="発音を聞く"
       >
-        <svg viewBox="0 0 24 24" className="wordSpeakerIcon" aria-hidden="true" focusable="false">
-          <path d="M5 10.1v3.8h2.6l4.2 3.2V6.9l-4.2 3.2H5z" />
-          <path d="M15 9.2c0.8 0.7 1.3 1.7 1.3 2.8s-0.5 2.1-1.3 2.8" />
-          <path d="M17.2 7.1c1.4 1.2 2.3 2.9 2.3 4.9s-0.9 3.7-2.3 4.9" />
+        <svg
+          viewBox="0 0 24 24"
+          width="18"
+          height="18"
+          className="wordSpeakerIcon"
+          aria-hidden="true"
+          focusable="false"
+          style={{
+            width: 18,
+            height: 18,
+            minWidth: 18,
+            minHeight: 18,
+            maxWidth: 18,
+            maxHeight: 18
+          }}
+        >
+          <path d="M5 10.1v3.8h2.6l4.2 3.2V6.9l-4.2 3.2H5z" fill="#2f7fca" />
+          <path
+            d="M15 9.2c0.8 0.7 1.3 1.7 1.3 2.8s-0.5 2.1-1.3 2.8"
+            fill="none"
+            stroke="#2f7fca"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M17.2 7.1c1.4 1.2 2.3 2.9 2.3 4.9s-0.9 3.7-2.3 4.9"
+            fill="none"
+            stroke="#2f7fca"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </svg>
       </button>
     </div>
@@ -3532,6 +3561,64 @@ export default function HomePage() {
         }
       `}</style>
       <style jsx global>{`
+        button.wordSpeaker {
+          justify-self: end;
+          flex: 0 0 32px;
+          width: 32px;
+          height: 32px;
+          min-width: 32px;
+          min-height: 32px;
+          max-width: 32px;
+          max-height: 32px;
+          box-sizing: border-box;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          appearance: none;
+          -webkit-appearance: none;
+          border-radius: 999px;
+          border: 1px solid #c8ddf4;
+          margin: 0;
+          padding: 0;
+          overflow: hidden;
+          background: linear-gradient(180deg, #f7fbff 0%, #e7f3ff 100%);
+          color: #2f7fca;
+          cursor: pointer;
+          line-height: 1;
+          box-shadow: 0 3px 9px rgba(63, 142, 215, 0.10);
+          transition: transform 0.16s, filter 0.16s, box-shadow 0.16s, border-color 0.16s;
+        }
+        button.wordSpeaker:hover,
+        button.wordSpeaker:focus-visible {
+          border-color: #8fc0ef;
+          filter: brightness(1.03);
+          transform: scale(1.04);
+          box-shadow: 0 6px 14px rgba(63, 142, 215, 0.16);
+          outline: none;
+        }
+        svg.wordSpeakerIcon {
+          flex: 0 0 18px;
+          width: 18px;
+          height: 18px;
+          min-width: 18px;
+          min-height: 18px;
+          max-width: 18px;
+          max-height: 18px;
+          display: block;
+          color: #2f7fca;
+        }
+        svg.wordSpeakerIcon path:first-child {
+          fill: currentColor;
+          stroke: none;
+        }
+        svg.wordSpeakerIcon path:not(:first-child) {
+          fill: none;
+          stroke: currentColor;
+          stroke-width: 1.7;
+          stroke-linecap: round;
+          stroke-linejoin: round;
+        }
+
         .questionModes {
           display: grid;
           grid-template-columns: repeat(3, minmax(0, 1fr));
