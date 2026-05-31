@@ -174,14 +174,11 @@ const WordRow = memo(function WordRow({ word, selected, isImportant, onToggle, o
     word.grade ? `G${word.grade}` : '',
     word.term ? `T${word.term}` : '',
     word.exam_type,
-    word.category1
-  ].filter(hasValue);
-  const bottomTags = [
+    word.category1,
     word.category2,
-    word.category3,
-    isImportant ? '重要' : '',
-    statusLabel
+    word.category3
   ].filter(hasValue);
+  const bottomTags = [isImportant ? '重要' : '', statusLabel].filter(hasValue);
 
   function handleSpeakerClick(event) {
     event.stopPropagation();
@@ -190,9 +187,7 @@ const WordRow = memo(function WordRow({ word, selected, isImportant, onToggle, o
 
   function handleSpeakerKeyDown(event) {
     if (event.key !== 'Enter' && event.key !== ' ') return;
-    event.preventDefault();
     event.stopPropagation();
-    onSpeak(word.english);
   }
 
   function handleRowKeyDown(event) {
@@ -233,21 +228,20 @@ const WordRow = memo(function WordRow({ word, selected, isImportant, onToggle, o
           ))}
         </span>
       </span>
-      <span
+      <button
         className="wordSpeaker"
         onClick={handleSpeakerClick}
         onKeyDown={handleSpeakerKeyDown}
-        role="button"
+        type="button"
         aria-label={`${word.english}を発音`}
-        tabIndex={0}
         title="発音を聞く"
       >
         <svg viewBox="0 0 24 24" className="wordSpeakerIcon" aria-hidden="true" focusable="false">
-          <path d="M4.5 9.5v5h3.2l4.6 3.7V5.8L7.7 9.5H4.5z" />
-          <path d="M15.1 8.2c1.2 1 1.9 2.3 1.9 3.8s-.7 2.8-1.9 3.8" />
-          <path d="M17.4 5.9c1.9 1.5 3.1 3.7 3.1 6.1s-1.2 4.6-3.1 6.1" />
+          <path d="M5 10.1v3.8h2.6l4.2 3.2V6.9l-4.2 3.2H5z" />
+          <path d="M15 9.2c0.8 0.7 1.3 1.7 1.3 2.8s-0.5 2.1-1.3 2.8" />
+          <path d="M17.2 7.1c1.4 1.2 2.3 2.9 2.3 4.9s-0.9 3.7-2.3 4.9" />
         </svg>
-      </span>
+      </button>
     </div>
   );
 }, (prev, next) => prev.word === next.word && prev.selected === next.selected && prev.isImportant === next.isImportant);
@@ -2704,15 +2698,15 @@ export default function HomePage() {
           min-height: 0;
         }
         .wordRowItem {
-          grid-template-columns: 5px minmax(220px, 1.15fr) minmax(210px, 0.85fr) 40px;
-          gap: 12px;
-          min-height: 58px;
+          grid-template-columns: 5px minmax(180px, 1fr) minmax(190px, 0.72fr) 36px;
+          gap: 10px;
+          min-height: 54px;
           align-items: center;
-          padding: 8px 10px 8px 0;
+          padding: 7px 9px 7px 0;
           border: 1px solid #dce7f6;
-          border-radius: 15px;
+          border-radius: 14px;
           background: #ffffff;
-          box-shadow: 0 4px 14px rgba(60, 100, 145, 0.05);
+          box-shadow: 0 3px 12px rgba(60, 100, 145, 0.05);
         }
         .wordRowItem:hover {
           background: #fbfdff;
@@ -2721,13 +2715,13 @@ export default function HomePage() {
           box-shadow: 0 8px 18px rgba(60, 100, 145, 0.08);
         }
         .wordRowItem.selected {
-          background: linear-gradient(90deg, #dff0ff 0%, #eef8ff 100%);
-          border-color: #8bc4f3;
+          background: #e8f4ff;
+          border-color: #68aee8;
           box-shadow: inset 5px 0 0 #2584d9, 0 8px 22px rgba(37, 132, 217, 0.12);
         }
         .wordSelectionRail {
           width: 5px;
-          height: calc(100% - 14px);
+          height: calc(100% - 12px);
           border-radius: 0 999px 999px 0;
           background: transparent;
         }
@@ -2738,40 +2732,43 @@ export default function HomePage() {
           min-width: 0;
           display: flex;
           align-items: baseline;
-          gap: 10px;
+          gap: 9px;
           white-space: nowrap;
           overflow: hidden;
         }
         .wordEnglish {
           flex: 0 0 auto;
           color: #174b82;
-          font-size: 1.12rem;
+          font-size: 1.08rem;
           font-weight: 900;
           letter-spacing: 0.01em;
         }
         .wordJapanese {
           flex: 0 1 auto;
-          min-width: 4em;
+          min-width: 3.5em;
           color: #365f8e;
-          font-size: 0.96rem;
+          font-size: 0.94rem;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
         }
         .wordPhonetic {
-          flex: 0 1 auto;
-          color: #8a9fba;
-          font-size: 0.8rem;
+          flex: 0 2 auto;
+          min-width: 0;
+          color: #7f96b2;
+          font-size: 0.78rem;
           overflow: hidden;
           text-overflow: ellipsis;
+          white-space: nowrap;
         }
         .wordMetaInfo {
           min-width: 0;
           display: grid;
-          grid-template-rows: repeat(2, minmax(18px, auto));
-          gap: 3px;
-          padding-left: 12px;
+          grid-template-rows: repeat(2, 18px);
+          gap: 2px;
+          padding-left: 10px;
           border-left: 1px solid #dce9f8;
+          align-content: center;
         }
         .wordTagLine {
           min-width: 0;
@@ -2788,8 +2785,8 @@ export default function HomePage() {
           border-radius: 999px;
           background: #f1f7ff;
           color: #526f93;
-          padding: 2px 7px;
-          font-size: 0.68rem;
+          padding: 1px 6px;
+          font-size: 0.64rem;
           font-weight: 800;
           line-height: 1.35;
           overflow: hidden;
@@ -2797,10 +2794,10 @@ export default function HomePage() {
           white-space: nowrap;
         }
         .wordTag.important {
-          border-color: #b8d8f4;
-          background: #dff0ff;
-          color: #1d70b4;
-          box-shadow: inset 0 0 0 1px rgba(63, 142, 215, 0.08);
+          border-color: #f4b6a5;
+          background: #fff0e8;
+          color: #c04620;
+          box-shadow: inset 0 0 0 1px rgba(232, 104, 55, 0.12);
         }
         .wordTag.unseen {
           border-color: #cce8d4;
@@ -2809,26 +2806,31 @@ export default function HomePage() {
         }
         .wordSpeaker {
           justify-self: end;
-          width: 34px;
-          height: 34px;
+          width: 32px;
+          height: 32px;
           display: inline-flex;
           align-items: center;
           justify-content: center;
           border-radius: 999px;
-          background: linear-gradient(180deg, #eef7ff 0%, #deefff 100%);
-          border: 1px solid #cfe2f7;
+          background: linear-gradient(180deg, #f7fbff 0%, #e7f3ff 100%);
+          border: 1px solid #c8ddf4;
           color: #2f7fca;
-          box-shadow: 0 4px 10px rgba(63, 142, 215, 0.10);
-          transition: transform 0.16s, filter 0.16s, box-shadow 0.16s;
+          box-shadow: 0 3px 9px rgba(63, 142, 215, 0.10);
+          cursor: pointer;
+          padding: 0;
+          transition: transform 0.16s, filter 0.16s, box-shadow 0.16s, border-color 0.16s;
         }
-        .wordSpeaker:hover {
-          filter: brightness(1.04);
+        .wordSpeaker:hover,
+        .wordSpeaker:focus-visible {
+          border-color: #8fc0ef;
+          filter: brightness(1.03);
           transform: scale(1.04);
           box-shadow: 0 6px 14px rgba(63, 142, 215, 0.16);
+          outline: none;
         }
         .wordSpeakerIcon {
-          width: 20px;
-          height: 20px;
+          width: 18px;
+          height: 18px;
           display: block;
         }
         .wordSpeakerIcon path:first-child {
@@ -2838,7 +2840,7 @@ export default function HomePage() {
         .wordSpeakerIcon path:not(:first-child) {
           fill: none;
           stroke: currentColor;
-          stroke-width: 1.8;
+          stroke-width: 1.7;
           stroke-linecap: round;
           stroke-linejoin: round;
         }
@@ -2929,25 +2931,28 @@ export default function HomePage() {
             padding: 6px;
           }
           .wordRowItem {
-            grid-template-columns: 5px minmax(0, 1fr) 34px;
-            gap: 6px;
-            padding: 7px 7px 7px 0;
+            grid-template-columns: 5px minmax(96px, 1fr) minmax(84px, 0.78fr) 30px;
+            gap: 5px;
+            min-height: 52px;
+            padding: 6px 6px 6px 0;
             border-radius: 11px;
           }
           .wordTitleLine {
             gap: 6px;
           }
           .wordEnglish {
-            font-size: 1rem;
+            font-size: 0.98rem;
           }
           .wordJapanese {
-            font-size: 0.88rem;
+            min-width: 2.5em;
+            font-size: 0.84rem;
           }
           .wordRowMain {
             gap: 6px;
           }
           .wordPhonetic {
-            display: none;
+            display: inline;
+            font-size: 0.68rem;
           }
           .wordTags {
             max-height: 22px;
@@ -2957,31 +2962,27 @@ export default function HomePage() {
             grid-template-columns: 1fr;
           }
           .wordSpeaker {
-            width: 32px;
-            height: 32px;
-            grid-column: 3;
-            grid-row: 1 / span 2;
+            width: 30px;
+            height: 30px;
           }
-          .wordRowItem {
-            grid-template-columns: 5px minmax(0, 1fr) 34px;
-            grid-template-rows: auto auto;
-            align-items: center;
+          .wordSpeakerIcon {
+            width: 17px;
+            height: 17px;
           }
           .wordPrimaryInfo {
-            grid-column: 2;
-            gap: 6px;
+            gap: 5px;
           }
           .wordMetaInfo {
-            grid-column: 2;
-            padding-left: 0;
-            border-left: none;
+            grid-template-rows: repeat(2, 16px);
+            gap: 1px;
+            padding-left: 6px;
           }
           .wordTagLine {
             gap: 3px;
           }
           .wordTag {
-            padding: 1px 5px;
-            font-size: 0.62rem;
+            padding: 1px 4px;
+            font-size: 0.58rem;
           }
           .pickerBottomBar {
             padding: 8px;
