@@ -164,17 +164,19 @@ function DiffText({ answer, correct }) {
   });
 }
 
-const BASIC_FILTER_KEYS = ['grade', 'term', 'category1'];
-const DETAIL_FILTER_KEYS = ['school_level', 'exam_type', 'category2', 'category3'];
-const FILTER_KEYS = [...BASIC_FILTER_KEYS, ...DETAIL_FILTER_KEYS];
+const FILTER_KEYS = ['school_level', 'grade', 'term', 'exam_type', 'category1', 'category2', 'category3'];
 
 const WordRow = memo(function WordRow({ word, selected, isImportant, onToggle, onSpeak }) {
   const stats = word.stats;
-  const statusLabel = stats ? `回答${stats.attempt_count ?? 0}回` : '未出題';
-  const tags = [
+  const attemptCount = stats?.attempt_count ?? 0;
+  const statusLabel = attemptCount > 0 ? `回答${attemptCount}回` : '未出題';
+  const topTags = [
     word.grade ? `G${word.grade}` : '',
     word.term ? `T${word.term}` : '',
-    word.category1,
+    word.exam_type,
+    word.category1
+  ].filter(hasValue);
+  const bottomTags = [
     word.category2,
     word.category3,
     isImportant ? '重要' : '',
@@ -209,18 +211,27 @@ const WordRow = memo(function WordRow({ word, selected, isImportant, onToggle, o
       aria-pressed={selected}
     >
       <span className="wordSelectionRail" aria-hidden="true" />
-      <span className="wordRowMain">
+      <span className="wordPrimaryInfo">
         <strong className="wordEnglish">{word.english}</strong>
         <span className="wordJapanese">{word.japanese}</span>
         {word.phonetic ? <span className="wordPhonetic">{word.phonetic}</span> : null}
-        <span className="wordTags">
-          {tags.map((tag, index) => (
-            <span className={`wordTag ${tag === '重要' ? 'important' : ''} ${tag === '未出題' ? 'unseen' : ''}`} key={`${word.id}-${tag}-${index}`}>
+        <span className="srOnly">{selected ? '選択中' : '未選択'}</span>
+      </span>
+      <span className="wordMetaInfo" aria-label="カテゴリと状態">
+        <span className="wordTagLine">
+          {topTags.map((tag, index) => (
+            <span className="wordTag" key={`${word.id}-top-${tag}-${index}`}>
               {tag}
             </span>
           ))}
         </span>
-        <span className="srOnly">{selected ? '選択中' : '未選択'}</span>
+        <span className="wordTagLine">
+          {bottomTags.map((tag, index) => (
+            <span className={`wordTag ${tag === '重要' ? 'important' : ''} ${tag === '未出題' ? 'unseen' : ''}`} key={`${word.id}-bottom-${tag}-${index}`}>
+              {tag}
+            </span>
+          ))}
+        </span>
       </span>
       <span
         className="wordSpeaker"
@@ -231,7 +242,11 @@ const WordRow = memo(function WordRow({ word, selected, isImportant, onToggle, o
         tabIndex={0}
         title="発音を聞く"
       >
-        🔊
+        <svg viewBox="0 0 24 24" className="wordSpeakerIcon" aria-hidden="true" focusable="false">
+          <path d="M4.5 9.5v5h3.2l4.6 3.7V5.8L7.7 9.5H4.5z" />
+          <path d="M15.1 8.2c1.2 1 1.9 2.3 1.9 3.8s-.7 2.8-1.9 3.8" />
+          <path d="M17.4 5.9c1.9 1.5 3.1 3.7 3.1 6.1s-1.2 4.6-3.1 6.1" />
+        </svg>
       </span>
     </div>
   );
@@ -1379,7 +1394,7 @@ export default function HomePage() {
 
             {game.pickerPanel === 'category' && (
               <div className="pickerPanelOverlay" role="presentation">
-                <section className="pickerPopoverPanel categoryPanel" aria-label="カテゴリ選択">
+                <section className="pickerPopoverPanel categoryPanel" role="dialog" aria-modal="true" aria-label="カテゴリ選択">
                   <div className="panelTitleRow">
                     <div>
                       <p className="panelEyebrow">Filter</p>
@@ -1422,7 +1437,7 @@ export default function HomePage() {
 
             {game.pickerPanel === 'save' && (
               <div className="pickerPanelOverlay" role="presentation">
-                <section className="pickerPopoverPanel savePanel" aria-label="セットとして保存">
+                <section className="pickerPopoverPanel savePanel" role="dialog" aria-modal="true" aria-label="セットとして保存">
                   <div className="panelTitleRow">
                     <div>
                       <p className="panelEyebrow">Save set</p>
@@ -1453,7 +1468,7 @@ export default function HomePage() {
 
             {game.pickerPanel === 'open' && (
               <div className="pickerPanelOverlay" role="presentation">
-                <section className="pickerPopoverPanel openPanel" aria-label="保存済みセットを開く">
+                <section className="pickerPopoverPanel openPanel" role="dialog" aria-modal="true" aria-label="保存済みセットを開く">
                   <div className="panelTitleRow">
                     <div>
                       <p className="panelEyebrow">Saved sets</p>
@@ -2688,6 +2703,145 @@ export default function HomePage() {
         .mainWordListPanel {
           min-height: 0;
         }
+        .wordRowItem {
+          grid-template-columns: 5px minmax(220px, 1.15fr) minmax(210px, 0.85fr) 40px;
+          gap: 12px;
+          min-height: 58px;
+          align-items: center;
+          padding: 8px 10px 8px 0;
+          border: 1px solid #dce7f6;
+          border-radius: 15px;
+          background: #ffffff;
+          box-shadow: 0 4px 14px rgba(60, 100, 145, 0.05);
+        }
+        .wordRowItem:hover {
+          background: #fbfdff;
+          border-color: #b9d2ef;
+          transform: translateY(-1px);
+          box-shadow: 0 8px 18px rgba(60, 100, 145, 0.08);
+        }
+        .wordRowItem.selected {
+          background: linear-gradient(90deg, #dff0ff 0%, #eef8ff 100%);
+          border-color: #8bc4f3;
+          box-shadow: inset 5px 0 0 #2584d9, 0 8px 22px rgba(37, 132, 217, 0.12);
+        }
+        .wordSelectionRail {
+          width: 5px;
+          height: calc(100% - 14px);
+          border-radius: 0 999px 999px 0;
+          background: transparent;
+        }
+        .wordRowItem.selected .wordSelectionRail {
+          background: #2584d9;
+        }
+        .wordPrimaryInfo {
+          min-width: 0;
+          display: flex;
+          align-items: baseline;
+          gap: 10px;
+          white-space: nowrap;
+          overflow: hidden;
+        }
+        .wordEnglish {
+          flex: 0 0 auto;
+          color: #174b82;
+          font-size: 1.12rem;
+          font-weight: 900;
+          letter-spacing: 0.01em;
+        }
+        .wordJapanese {
+          flex: 0 1 auto;
+          min-width: 4em;
+          color: #365f8e;
+          font-size: 0.96rem;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .wordPhonetic {
+          flex: 0 1 auto;
+          color: #8a9fba;
+          font-size: 0.8rem;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .wordMetaInfo {
+          min-width: 0;
+          display: grid;
+          grid-template-rows: repeat(2, minmax(18px, auto));
+          gap: 3px;
+          padding-left: 12px;
+          border-left: 1px solid #dce9f8;
+        }
+        .wordTagLine {
+          min-width: 0;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          overflow: hidden;
+        }
+        .wordTag {
+          flex: 0 1 auto;
+          min-width: 0;
+          max-width: 100%;
+          border: 1px solid #d7e6f8;
+          border-radius: 999px;
+          background: #f1f7ff;
+          color: #526f93;
+          padding: 2px 7px;
+          font-size: 0.68rem;
+          font-weight: 800;
+          line-height: 1.35;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .wordTag.important {
+          border-color: #b8d8f4;
+          background: #dff0ff;
+          color: #1d70b4;
+          box-shadow: inset 0 0 0 1px rgba(63, 142, 215, 0.08);
+        }
+        .wordTag.unseen {
+          border-color: #cce8d4;
+          background: #edf8f0;
+          color: #33834b;
+        }
+        .wordSpeaker {
+          justify-self: end;
+          width: 34px;
+          height: 34px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 999px;
+          background: linear-gradient(180deg, #eef7ff 0%, #deefff 100%);
+          border: 1px solid #cfe2f7;
+          color: #2f7fca;
+          box-shadow: 0 4px 10px rgba(63, 142, 215, 0.10);
+          transition: transform 0.16s, filter 0.16s, box-shadow 0.16s;
+        }
+        .wordSpeaker:hover {
+          filter: brightness(1.04);
+          transform: scale(1.04);
+          box-shadow: 0 6px 14px rgba(63, 142, 215, 0.16);
+        }
+        .wordSpeakerIcon {
+          width: 20px;
+          height: 20px;
+          display: block;
+        }
+        .wordSpeakerIcon path:first-child {
+          fill: currentColor;
+          stroke: none;
+        }
+        .wordSpeakerIcon path:not(:first-child) {
+          fill: none;
+          stroke: currentColor;
+          stroke-width: 1.8;
+          stroke-linecap: round;
+          stroke-linejoin: round;
+        }
 
         @media (max-width: 780px) {
           .pickerHeaderActions {
@@ -2805,6 +2959,29 @@ export default function HomePage() {
           .wordSpeaker {
             width: 32px;
             height: 32px;
+            grid-column: 3;
+            grid-row: 1 / span 2;
+          }
+          .wordRowItem {
+            grid-template-columns: 5px minmax(0, 1fr) 34px;
+            grid-template-rows: auto auto;
+            align-items: center;
+          }
+          .wordPrimaryInfo {
+            grid-column: 2;
+            gap: 6px;
+          }
+          .wordMetaInfo {
+            grid-column: 2;
+            padding-left: 0;
+            border-left: none;
+          }
+          .wordTagLine {
+            gap: 3px;
+          }
+          .wordTag {
+            padding: 1px 5px;
+            font-size: 0.62rem;
           }
           .pickerBottomBar {
             padding: 8px;
