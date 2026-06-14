@@ -2,32 +2,44 @@ const CARD_BASE_PATH = "cards/tarot";
 const HISTORY_KEY = "jiminyUranaiHistory";
 
 const tarotCards = [
-  card("愚者", "the-fool", "新しい始まり、自由、可能性", "無計画、不安定、軽率", "心を開いて一歩踏み出して。準備不足だけは見直しましょう。", "保留"),
-  card("魔術師", "the-magician", "創造力、行動力、チャンス", "準備不足、空回り、迷い", "持っている力を具体的な行動に変える時です。", "yes"),
-  card("女教皇", "the-high-priestess", "直感、静けさ、内面の知恵", "秘密、不安、考えすぎ", "答えを急がず、違和感や直感を大切に。", "neutral"),
-  card("女帝", "the-empress", "愛情、豊かさ、育つ流れ", "依存、甘え、停滞", "育てたいものに時間と優しさを注ぎましょう。", "yes"),
-  card("皇帝", "the-emperor", "安定、責任、リーダーシップ", "頑固、支配、融通のなさ", "ルールと計画を整えると道が固まります。", "yes"),
-  card("教皇", "the-hierophant", "信頼、学び、伝統", "孤立、常識への反発、視野の狭さ", "信頼できる人や基本に立ち返ると安心です。", "yes"),
-  card("恋人", "the-lovers", "選択、調和、ときめき", "迷い、誘惑、不一致", "心が本当に望むものを選んでください。", "yes"),
-  card("戦車", "the-chariot", "前進、勝利、突破力", "暴走、焦り、方向性の乱れ", "勢いは味方。目的地を確認して進みましょう。", "strongYes"),
-  card("力", "strength", "勇気、忍耐、優しい強さ", "自信不足、我慢の限界、弱気", "押し切るより、穏やかな粘り強さが鍵です。", "yes"),
-  card("隠者", "the-hermit", "内省、探求、慎重さ", "孤独、閉じこもり、考えすぎ", "一人で整理する時間が答えを照らします。", "neutral"),
-  card("運命の輪", "wheel-of-fortune", "転機、好機、流れの変化", "タイミングのずれ、停滞、予想外", "流れが変わります。小さなサインを逃さないで。", "yes"),
-  card("正義", "justice", "公平、判断、バランス", "偏り、不公平、決断の遅れ", "事実を整理し、公平な判断を意識しましょう。", "neutral"),
-  card("吊るされた男", "the-hanged-man", "忍耐、視点転換、手放し", "停滞、報われなさ、執着", "今は見方を変えるほど道が開けます。", "neutral"),
-  card("死神", "death", "終わりと再生、切り替え", "変化への抵抗、未練、停滞", "終わらせることで、新しい余白が生まれます。", "no"),
-  card("節制", "temperance", "調和、調整、回復", "不均衡、浪費、焦り", "急がず、ちょうどよいペースに整えましょう。", "yes"),
-  card("悪魔", "the-devil", "執着、誘惑、依存", "解放、気づき、悪習から離れる", "魅力的でも縛られすぎていないか確認して。", "caution"),
-  card("塔", "the-tower", "衝撃、崩壊、目覚め", "被害を避ける、再建、警告", "無理に守るより、崩れた後の再建を見て。", "no"),
-  card("星", "the-star", "希望、癒し、未来への光", "理想倒れ、失望、回復途中", "希望を小さな行動に落とし込むと輝きます。", "yes"),
-  card("月", "the-moon", "不安、曖昧さ、見えないもの", "不安の解消、真実が見える、混乱の終わり", "まだ情報不足。焦って結論を出さないで。", "neutral"),
-  card("太陽", "the-sun", "成功、喜び、明るい展開", "遅れ、過信、子どもっぽさ", "素直に楽しむほど運が開きます。", "strongYes"),
-  card("審判", "judgement", "復活、決断、目覚め", "後悔、先延ばし、呼びかけを無視", "過去の経験を活かし、次の扉を開けましょう。", "yes"),
-  card("世界", "the-world", "完成、達成、統合", "未完成、停滞、詰めの甘さ", "一区切りの達成。次のステージを見据えて。", "strongYes"),
+  card(0, "愚者", "the-fool", "新しい始まり、自由、可能性", "無計画、不安定、軽率", "心を開いて一歩踏み出して。準備不足だけは見直しましょう。", "neutral"),
+  card(1, "魔術師", "the-magician", "創造力、行動力、チャンス", "準備不足、空回り、迷い", "持っている力を具体的な行動に変える時です。", "yes"),
+  card(2, "女教皇", "the-high-priestess", "直感、静けさ、内面の知恵", "秘密、不安、考えすぎ", "答えを急がず、違和感や直感を大切に。", "neutral"),
+  card(3, "女帝", "the-empress", "愛情、豊かさ、育つ流れ", "依存、甘え、停滞", "育てたいものに時間と優しさを注ぎましょう。", "yes"),
+  card(4, "皇帝", "the-emperor", "安定、責任、リーダーシップ", "頑固、支配、融通のなさ", "ルールと計画を整えると道が固まります。", "yes"),
+  card(5, "教皇", "the-hierophant", "信頼、学び、伝統", "孤立、常識への反発、視野の狭さ", "信頼できる人や基本に立ち返ると安心です。", "yes"),
+  card(6, "恋人", "the-lovers", "選択、調和、ときめき", "迷い、誘惑、不一致", "心が本当に望むものを選んでください。", "yes"),
+  card(7, "戦車", "the-chariot", "前進、勝利、突破力", "暴走、焦り、方向性の乱れ", "勢いは味方。目的地を確認して進みましょう。", "strongYes"),
+  card(8, "力", "strength", "勇気、忍耐、優しい強さ", "自信不足、我慢の限界、弱気", "押し切るより、穏やかな粘り強さが鍵です。", "yes"),
+  card(9, "隠者", "the-hermit", "内省、探求、慎重さ", "孤独、閉じこもり、考えすぎ", "一人で整理する時間が答えを照らします。", "neutral"),
+  card(10, "運命の輪", "wheel-of-fortune", "転機、好機、流れの変化", "タイミングのずれ、停滞、予想外", "流れが変わります。小さなサインを逃さないで。", "yes"),
+  card(11, "正義", "justice", "公平、判断、バランス", "偏り、不公平、決断の遅れ", "事実を整理し、公平な判断を意識しましょう。", "neutral"),
+  card(12, "吊るされた男", "the-hanged-man", "忍耐、視点転換、手放し", "停滞、報われなさ、執着", "今は見方を変えるほど道が開けます。", "neutral"),
+  card(13, "死神", "death", "終わりと再生、切り替え", "変化への抵抗、未練、停滞", "終わらせることで、新しい余白が生まれます。", "no"),
+  card(14, "節制", "temperance", "調和、調整、回復", "不均衡、浪費、焦り", "急がず、ちょうどよいペースに整えましょう。", "yes"),
+  card(15, "悪魔", "the-devil", "執着、誘惑、依存", "解放、気づき、悪習から離れる", "魅力的でも縛られすぎていないか確認して。", "caution"),
+  card(16, "塔", "the-tower", "衝撃、崩壊、目覚め", "被害を避ける、再建、警告", "無理に守るより、崩れた後の再建を見て。", "no"),
+  card(17, "星", "the-star", "希望、癒し、未来への光", "理想倒れ、失望、回復途中", "希望を小さな行動に落とし込むと輝きます。", "yes"),
+  card(18, "月", "the-moon", "不安、曖昧さ、見えないもの", "不安の解消、真実が見える、混乱の終わり", "まだ情報不足。焦って結論を出さないで。", "neutral"),
+  card(19, "太陽", "the-sun", "成功、喜び、明るい展開", "遅れ、過信、子どもっぽさ", "素直に楽しむほど運が開きます。", "strongYes"),
+  card(20, "審判", "judgement", "復活、決断、目覚め", "後悔、先延ばし、呼びかけを無視", "過去の経験を活かし、次の扉を開けましょう。", "yes"),
+  card(21, "世界", "the-world", "完成、達成、統合", "未完成、停滞、詰めの甘さ", "一区切りの達成。次のステージを見据えて。", "strongYes"),
 ];
 
-function card(name, slug, upright, reversed, advice, yesNo) {
-  return { name, slug, upright, reversed, advice, yesNo, image: `${CARD_BASE_PATH}/${slug}.png` };
+function card(number, name, slug, upright, reversed, advice, yesNo) {
+  const padded = String(number).padStart(2, "0");
+  const candidates = [
+    `${CARD_BASE_PATH}/${slug}.png`,
+    `${CARD_BASE_PATH}/${slug}.PNG`,
+    `${CARD_BASE_PATH}/${number}.png`,
+    `${CARD_BASE_PATH}/${padded}.png`,
+    `${CARD_BASE_PATH}/${number + 1}.png`,
+    `${CARD_BASE_PATH}/${String(number + 1).padStart(2, "0")}.png`,
+    `${CARD_BASE_PATH}/${name}.png`,
+    `${CARD_BASE_PATH}/${name}.PNG`,
+  ];
+
+  return { number, name, slug, upright, reversed, advice, yesNo, image: candidates[0], imageCandidates: [...new Set(candidates)] };
 }
 
 const menuButtons = document.querySelectorAll(".menu-button");
@@ -108,7 +120,21 @@ function renderReadingResult({ title, subtitle, cards, summary }) {
 }
 
 function renderCard(drawn) {
-  return `<article class="tarot-card"><div class="card-inner"><div class="card-face card-back">✦</div><div class="card-face card-front"><div class="card-image-wrap"><img class="card-image ${drawn.reversed ? "reversed" : ""}" src="${drawn.card.image}" alt="${drawn.card.name}" onerror="this.outerHTML='<div class=&quot;card-image missing&quot;>✦<br>${drawn.card.name}</div>'"></div><div class="card-body"><div class="card-role">${drawn.role}</div><h3>${drawn.card.name}</h3><div class="card-position">${drawn.position}</div><p>${drawn.meaning}</p><p><strong>アドバイス：</strong>${drawn.card.advice}</p></div></div></div></article>`;
+  const candidates = escapeHtml(JSON.stringify(drawn.card.imageCandidates));
+  return `<article class="tarot-card"><div class="card-inner"><div class="card-face card-back">✦</div><div class="card-face card-front"><div class="card-image-wrap"><img class="card-image ${drawn.reversed ? "reversed" : ""}" src="${drawn.card.image}" alt="${drawn.card.name}" data-candidates="${candidates}" data-candidate-index="0" onerror="useNextCardImage(this)"></div><div class="card-body"><div class="card-role">${drawn.role}</div><h3>${drawn.card.name}</h3><div class="card-position">${drawn.position}</div><p>${drawn.meaning}</p><p><strong>アドバイス：</strong>${drawn.card.advice}</p></div></div></div></article>`;
+}
+
+function useNextCardImage(image) {
+  const candidates = JSON.parse(image.dataset.candidates || "[]");
+  const nextIndex = Number(image.dataset.candidateIndex || 0) + 1;
+
+  if (candidates[nextIndex]) {
+    image.dataset.candidateIndex = String(nextIndex);
+    image.src = candidates[nextIndex];
+    return;
+  }
+
+  image.outerHTML = `<div class="card-image missing">✦<br>${image.alt}</div>`;
 }
 
 function judgeYesNo(drawn) {
