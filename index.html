@@ -2,89 +2,973 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>ジミニー占い / jiminy-uranai</title>
-    <link rel="stylesheet" href="style.css" />
+    <!-- ★変更済み：レスポンシブ完全対応版 -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no"
+    />
+
+    <title>Muse Note</title>
+
+    <style>
+      :root {
+        --tone: #a8c9f0;
+        --tone-dark: #4f6b94;
+        --paper: #ffffff;
+        --soft-red: #e67b7b;
+        --radius: 20px;
+        font-family: "Zen Maru Gothic", "Noto Sans JP", "Inter", sans-serif;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        background: #f6f9ff;
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        min-height: 100vh;
+        padding: 12px;
+        color: var(--tone-dark);
+        -webkit-text-size-adjust: 100%;
+      }
+
+      .app {
+        width: 100%;
+        max-width: 460px;
+        background: var(--paper);
+        border-radius: var(--radius);
+        box-shadow: 0 6px 16px rgba(80, 100, 150, 0.08);
+        padding: 32px 24px 40px;
+        text-align: center;
+        position: relative;
+      }
+
+      .logo.large {
+        font-size: 2rem;
+        margin-bottom: 1rem;
+        font-weight: 700;
+      }
+
+      .logo.small {
+        font-size: 1.1rem;
+      }
+
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+      }
+
+      #timer,
+      #progress {
+        font-size: 1rem;
+      }
+
+      #name,
+      #count {
+        width: 100%;
+        padding: 0.8em;
+        border: 2px solid #d0dbf1;
+        border-radius: 12px;
+        font-size: 1.1rem;
+        margin-top: 10px;
+        background: white;
+      }
+
+      .input-row {
+        display: flex;
+        gap: 10px;
+      }
+
+      .mode-buttons {
+        margin-top: 1rem;
+        display: flex;
+        gap: 10px;
+      }
+
+      .mode-btn {
+        flex: 1;
+        padding: 0.9em 0;
+        font-size: 1.1rem;
+        font-weight: 600;
+        border: none;
+        border-radius: 12px;
+        color: #fff;
+        background: var(--tone);
+        cursor: pointer;
+        box-shadow: 0 4px 10px rgba(168, 201, 240, 0.35);
+        transition: 0.2s;
+      }
+
+      .mode-btn:hover {
+        filter: brightness(1.08);
+      }
+      .mode-btn:active {
+        transform: scale(0.97);
+      }
+
+      #question {
+        margin-top: 1rem;
+        font-size: 1.8rem;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      #hintIPA {
+        margin-top: 0.3rem;
+      }
+
+      #answer {
+        margin-top: 10px;
+        font-size: 1.4rem;
+        padding: 0.4em 0.2em;
+        border: none;
+        border-bottom: 3px solid #cdd9f2;
+        background: transparent;
+        text-align: center;
+        outline: none;
+      }
+
+      #next {
+        margin-top: 1rem;
+        width: auto;
+        padding: 0.7em 1.2em;
+        font-size: 1.2rem;
+        border: none;
+        color: white;
+        background: var(--tone);
+        border-radius: 10px;
+        cursor: pointer;
+        box-shadow: 0 4px 10px rgba(168, 201, 240, 0.35);
+      }
+
+      @media (max-width: 600px) {
+        body {
+          padding: 0;
+        }
+
+        .app {
+          width: 100%;
+          max-width: none;
+          border-radius: 0;
+          box-shadow: none;
+          padding: 24px 16px 32px;
+        }
+
+        .logo.large {
+          font-size: 8vw;
+          margin-bottom: 0.5rem;
+        }
+        .logo.small {
+          font-size: 4vw;
+        }
+
+        #timer,
+        #progress {
+          font-size: 4vw;
+        }
+
+        #question {
+          font-size: 7.5vw;
+          margin-top: 1.2rem;
+        }
+
+        #answer {
+          width: 100%;
+          font-size: 6.5vw;
+        }
+
+        #next {
+          width: 100%;
+          font-size: 5.8vw;
+          margin-top: 1.2rem;
+        }
+
+        .mode-buttons {
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .mode-btn {
+          font-size: 5.2vw;
+        }
+
+        .input-row {
+          flex-direction: column;
+        }
+
+        #name,
+        #count {
+          font-size: 5.2vw;
+        }
+      }
+
+      .hidden {
+        display: none !important;
+      }
+
+      .word-correct {
+        font-size: 1.25rem;
+        color: #2e7d32;
+        font-weight: 700;
+      }
+
+      .word-input {
+        font-size: 1.25rem;
+        color: #333;
+        border-bottom: 2px solid #e67b7b;
+        padding-bottom: 2px;
+        font-weight: 600;
+      }
+
+      .miss {
+        color: #e53935;
+        font-weight: 700;
+      }
+
+      .crossMark {
+        font-size: 1.2rem;
+        color: #e67b7b;
+        font-weight: 800;
+        margin-left: 0.35em;
+      }
+
+      .word-line {
+        display: block;
+        width: 20ch;
+        text-align: left;
+        margin: 4px auto;
+        padding-left: 0.6ch;
+      }
+
+      .compare {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        margin-left: 8px;
+        line-height: 1.45;
+      }
+
+      .ipa {
+        color: #678;
+        font-size: 0.95rem;
+        margin-left: 0.2rem;
+      }
+
+      .sound-btn {
+        cursor: pointer;
+        user-select: none;
+      }
+
+      #circleMark {
+        position: absolute;
+        inset: 0;
+        margin: auto;
+        width: 180px;
+        height: 180px;
+        border-radius: 50%;
+        border: 6px solid #66bb6a;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 4rem;
+        color: #66bb6a;
+        background: rgba(255, 255, 255, 0.9);
+        pointer-events: none;
+        animation: pop 0.4s ease-out;
+      }
+
+      @keyframes pop {
+        0% {
+          transform: scale(0.7);
+          opacity: 0;
+        }
+        60% {
+          transform: scale(1.05);
+          opacity: 1;
+        }
+        100% {
+          transform: scale(1);
+          opacity: 1;
+        }
+      }
+    </style>
   </head>
+
   <body>
-    <main class="app-shell">
-      <header class="hero">
-        <p class="eyebrow">jiminy-uranai</p>
-        <h1>ジミニー占い</h1>
-        <p class="lead">大アルカナ22枚で、今日の流れや選択のヒントを読み解きます。</p>
-      </header>
+    <div class="app">
+      <div id="circleMark" class="hidden">◯</div>
 
-      <nav class="reading-menu" aria-label="占い方式を選択">
-        <button class="menu-button active" data-reading="one">今日の1枚</button>
-        <button class="menu-button" data-reading="timeline">過去・現在・未来</button>
-        <button class="menu-button" data-reading="yesno">Yes / No 占い</button>
-        <button class="menu-button" data-reading="choice">二者択一占い</button>
-        <button class="menu-button" data-reading="love">恋愛占い</button>
-        <button class="menu-button" data-reading="work">仕事占い</button>
-      </nav>
-
-      <section class="panel form-panel" aria-live="polite">
-        <div class="reading-form active" data-form="one">
-          <h2>今日の1枚</h2>
-          <label for="oneTheme">テーマ</label>
-          <select id="oneTheme">
-            <option value="総合運">総合運</option>
-            <option value="恋愛運">恋愛運</option>
-            <option value="仕事運">仕事運</option>
-            <option value="金運">金運</option>
-            <option value="人間関係">人間関係</option>
-          </select>
-          <button class="draw-button" id="drawOneButton">カードを1枚引く</button>
+      <div class="header hidden" id="header">
+        <div class="logo small">Muse Note</div>
+        <div class="header-right">
+          <div id="progress">0 / 0</div>
+          <div id="timer">00:00 / 0:00</div>
         </div>
+      </div>
 
-        <div class="reading-form" data-form="timeline">
-          <h2>過去・現在・未来</h2>
-          <p>今の状況につながる流れと、これからの可能性を3枚で見ます。</p>
-          <button class="draw-button" id="drawTimelineButton">3枚引く</button>
+      <div class="intro" id="intro">
+        <div class="logo large">Muse Note</div>
+        <div id="user" style="width: 100%">
+          <div class="input-row">
+            <input id="name" placeholder="ユーザー名" />
+            <input
+              id="count"
+              type="number"
+              min="1"
+              placeholder="出題数（空=全件）"
+            />
+          </div>
+          <div class="mode-buttons">
+            <button class="mode-btn" data-mode="fast">A.早い</button>
+            <button class="mode-btn" data-mode="normal">B.通常</button>
+            <button class="mode-btn" data-mode="slow">C.ゆっくり</button>
+          </div>
         </div>
+      </div>
 
-        <div class="reading-form" data-form="yesno">
-          <h2>Yes / No 占い</h2>
-          <label for="yesNoQuestion">質問</label>
-          <input id="yesNoQuestion" type="text" placeholder="例：この計画を進めるべき？" />
-          <button class="draw-button" id="drawYesNoButton">答えを聞く</button>
-        </div>
+      <div id="game" class="hidden">
+        <div id="question" title="タップで発音します">読み込み中...</div>
+        <div id="hintIPA"></div>
+        <input
+          id="answer"
+          inputmode="latin"
+          autocomplete="off"
+          autocapitalize="none"
+          spellcheck="false"
+        />
+        <button id="next">Answer ▶</button>
+        <div id="result"></div>
+      </div>
 
-        <div class="reading-form" data-form="choice">
-          <h2>二者択一占い</h2>
-          <label for="choiceA">選択肢A</label>
-          <input id="choiceA" type="text" placeholder="例：今の道を続ける" />
-          <label for="choiceB">選択肢B</label>
-          <input id="choiceB" type="text" placeholder="例：新しい挑戦をする" />
-          <button class="draw-button" id="drawChoiceButton">A/Bを占う</button>
-        </div>
+      <div
+        id="reviewScreen"
+        class="hidden"
+        style="text-align: left; max-height: 80vh; overflow-y: auto"
+      ></div>
+    </div>
 
-        <div class="reading-form" data-form="love">
-          <h2>恋愛占い</h2>
-          <p>自分の気持ち、相手の気持ち、これからの流れを読みます。</p>
-          <button class="draw-button" id="drawLoveButton">恋愛を占う</button>
-        </div>
+    <script>
+      // 3つのスピードモード設定（元のまま）
+      const MODE_TIMING = {
+        fast: {
+          nextFast: 1.5,
+          nextSlow: 3,
+          noInputHint1: 4,
+          inputHint1: 6,
+          hintPlus3: 3,
+          judgePlus4: 4,
+        },
+        normal: {
+          nextFast: 1.5,
+          nextSlow: 5,
+          noInputHint1: 6,
+          inputHint1: 10,
+          hintPlus3: 3,
+          judgePlus4: 4,
+        },
+        slow: {
+          nextFast: 3,
+          nextSlow: 15,
+          noInputHint1: 10,
+          inputHint1: 15,
+          hintPlus3: 10,
+          judgePlus4: 13,
+        },
+      };
 
-        <div class="reading-form" data-form="work">
-          <h2>仕事占い</h2>
-          <p>現状、課題、アドバイスを3枚で整理します。</p>
-          <button class="draw-button" id="drawWorkButton">仕事を占う</button>
-        </div>
-      </section>
+      window.addEventListener("DOMContentLoaded", () => {
+        // ====== 状態管理 ======
+        // idle → asking（出題中）→ judged（採点済み）→ finished（結果表示）
+        let state = "idle";
+        let reviewShown = false;
 
-      <section id="result" class="panel result-panel empty">
-        <p>占い方式を選んで、カードを引いてください。</p>
-      </section>
+        // ====== 共通変数 ======
+        let userId = null;
+        let words = [];
+        let shuffled = [];
+        let currentIndex = 0;
+        let totalCount = 0;
+        let correctCount = 0;
+        let wrongCount = 0;
+        let targetCount = 0;
+        const reviewData = [];
 
-      <section class="panel history-panel">
-        <div class="history-title-row">
-          <h2>占い履歴</h2>
-          <button class="ghost-button" id="clearHistoryButton">履歴を消す</button>
-        </div>
-        <div id="historyList" class="history-list"></div>
-      </section>
-    </main>
+        const intro = document.getElementById("intro");
+        const header = document.getElementById("header");
+        const timerEl = document.getElementById("timer");
+        const progressEl = document.getElementById("progress");
+        const game = document.getElementById("game");
+        const nameInput = document.getElementById("name");
+        const countInput = document.getElementById("count");
+        const modeBtns = document.querySelectorAll(".mode-btn");
+        const question = document.getElementById("question");
+        const hintIPA = document.getElementById("hintIPA");
+        const answer = document.getElementById("answer");
+        const next = document.getElementById("next");
+        const result = document.getElementById("result");
+        const circle = document.getElementById("circleMark");
 
-    <script src="script.js"></script>
+        let totalStart = null;
+        let qStart = null;
+        let timerActive = false;
+        let current = null;
+
+        let timers = [];
+
+        function clearAllTimers() {
+          timers.forEach((t) => clearTimeout(t));
+          timers = [];
+        }
+
+        function addTimer(fn, ms) {
+          const id = setTimeout(fn, ms);
+          timers.push(id);
+        }
+
+        const pad2 = (n) => n.toString().padStart(2, "0");
+
+        function updateTimer() {
+          if (!timerActive || !totalStart || !qStart) return;
+          const now = Date.now();
+          const total = now - totalStart;
+          const q = now - qStart;
+          timerEl.textContent =
+            `${pad2(Math.floor(total / 60000))}:${pad2(
+              Math.floor((total % 60000) / 1000)
+            )}` +
+            ` / ${Math.floor(q / 60000)}:${pad2(
+              Math.floor((q % 60000) / 1000)
+            )}`;
+        }
+        setInterval(updateTimer, 1000);
+
+        // ====== 音声（英語の発音） ======
+        let englishVoice = null;
+        let ttsWarmedUp = false;
+
+        function warmupTTS() {
+          if (ttsWarmedUp || !englishVoice) return;
+          try {
+            const preload = new SpeechSynthesisUtterance("ready");
+            preload.voice = englishVoice;
+            preload.lang = "en-US";
+            preload.volume = 0;
+            speechSynthesis.speak(preload);
+            ttsWarmedUp = true;
+          } catch (e) {}
+        }
+
+        speechSynthesis.onvoiceschanged = () => {
+          const voices = speechSynthesis.getVoices();
+          const femaleNames = [
+            "Samantha",
+            "Karen",
+            "Victoria",
+            "Google UK English Female",
+            "Google US English Female",
+            "Zira",
+            "female",
+          ];
+          englishVoice =
+            voices.find(
+              (v) =>
+                v.lang.toLowerCase().startsWith("en") &&
+                femaleNames.some((f) => v.name.includes(f))
+            ) ||
+            voices.find(
+              (v) =>
+                v.lang.toLowerCase().startsWith("en") &&
+                v.name.toLowerCase().includes("female")
+            ) ||
+            voices.find((v) => v.lang.toLowerCase().startsWith("en")) ||
+            null;
+        };
+
+        function speak(w) {
+          try {
+            const u = new SpeechSynthesisUtterance(w);
+            if (englishVoice) u.voice = englishVoice;
+            u.lang = "en-US";
+            speechSynthesis.speak(u);
+          } catch (e) {}
+        }
+        window.speak = speak;
+
+        const normalizeText = (s) =>
+          s ? s.normalize("NFKC").toLowerCase().trim() : "";
+
+        function shuffleLocal(arr) {
+          const a = [...arr];
+          for (let i = a.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [a[i], a[j]] = [a[j], a[i]];
+          }
+          return a;
+        }
+
+        function diffHighlight(user, correct) {
+          const esc = (s) =>
+            s.replace(
+              /[&<>"']/g,
+              (m) =>
+                ({
+                  "&": "&amp;",
+                  "<": "&lt;",
+                  ">": "&gt;",
+                  '"': "&quot;",
+                  "'": "&#39;",
+                }[m])
+            );
+          const a = [...user];
+          const b = [...correct];
+          let h = "";
+          for (let i = 0; i < Math.max(a.length, b.length); i++) {
+            const uu = a[i] || "";
+            const bb = b[i] || "";
+            h +=
+              uu.toLowerCase() === bb.toLowerCase()
+                ? esc(uu)
+                : uu
+                ? `<span class="miss">${esc(uu)}</span>`
+                : "";
+          }
+          return h;
+        }
+
+        function updateProgress() {
+          progressEl.textContent = `${totalCount} / ${targetCount}`;
+        }
+
+        function showHint(stage) {
+          if (state !== "asking" || !current) return;
+          if (stage === 1) {
+            speak(current.en);
+          } else if (stage === 2) {
+            hintIPA.textContent = current.ipa || "";
+            speak(current.en);
+          }
+        }
+
+        // ====== 次の問題を出題 ======
+        function nextWord() {
+          if (state === "finished") return;
+
+          clearAllTimers();
+
+          if (totalCount >= targetCount) {
+            state = "finished";
+            showReview();
+            return;
+          }
+
+          if (currentIndex >= shuffled.length) {
+            state = "finished";
+            showReview();
+            return;
+          }
+
+          current = shuffled[currentIndex];
+          currentIndex++;
+
+          state = "asking";
+
+          question.textContent = current.jp;
+          hintIPA.textContent = "";
+          answer.value = "";
+          result.innerHTML = "";
+          circle.classList.add("hidden");
+          next.textContent = "Answer ▶";
+          answer.focus({ preventScroll: true });
+
+          qStart = Date.now();
+          timerActive = true;
+          updateProgress();
+
+          const mode =
+            document.querySelector(".mode-btn.active")?.dataset.mode ||
+            "normal";
+          const m = MODE_TIMING[mode];
+
+          const first = m.noInputHint1;
+          const second = first + m.hintPlus3;
+          const autoJudgeTime = second + m.judgePlus4;
+
+          addTimer(() => showHint(1), first * 1000);
+          addTimer(() => showHint(2), second * 1000);
+
+          addTimer(() => {
+            if (state === "asking") {
+              judge(answer.value);
+            }
+          }, autoJudgeTime * 1000);
+        }
+
+        // ====== 採点 ======
+        function judge(v) {
+          if (state !== "asking" || !current) return;
+          state = "judged";
+
+          clearAllTimers();
+
+          const ok = normalizeText(v) === normalizeText(current.en);
+
+          setTimeout(() => speak(current.en), 200);
+
+          totalCount++;
+          if (ok) correctCount++;
+          else wrongCount++;
+
+          reviewData.push({ ...current, answer: v, correct: ok });
+
+          google.script.run.recordHistory(userId, current.id, v, ok);
+          google.script.run.updateStatsOnJudge(userId, current.id, ok);
+
+          if (ok) {
+            circle.classList.remove("hidden");
+            result.innerHTML = `
+              <div class="compare">
+                <div class="word-line">
+                  <span class="word-correct">✔ ${current.en}</span>
+                  <span class="ipa">${current.ipa || ""}</span>
+                </div>
+              </div>`;
+            setTimeout(() => circle.classList.add("hidden"), 400);
+          } else {
+            const diffHTML = diffHighlight(v, current.en);
+            result.innerHTML = `
+              <div class="compare">
+                <div class="word-line">
+                  <span class="word-correct">${current.en}</span>
+                  <span class="ipa">${current.ipa || ""}</span>
+                </div>
+                <div class="word-line">
+                  <span class="word-input">${diffHTML}</span>
+                  <span class="crossMark">✖</span>
+                </div>
+              </div>`;
+          }
+
+          updateProgress();
+          next.textContent = "Next ▶";
+
+          const mode =
+            document.querySelector(".mode-btn.active")?.dataset.mode ||
+            "normal";
+          const timing = MODE_TIMING[mode];
+
+          if (totalCount >= targetCount) {
+            state = "finished";
+            addTimer(() => {
+              showReview();
+            }, (ok ? timing.nextFast : timing.nextSlow) * 1000);
+            return;
+          }
+
+          addTimer(() => {
+            if (state === "judged") nextWord();
+          }, (ok ? timing.nextFast : timing.nextSlow) * 1000);
+        }
+
+        // ====== 結果表示 ======
+        function showReview() {
+          if (reviewShown) return;
+          reviewShown = true;
+          clearAllTimers();
+          timerActive = false;
+          state = "finished";
+
+          game.classList.add("hidden");
+          header.classList.add("hidden");
+
+          const review = document.getElementById("reviewScreen");
+          const acc = totalCount
+            ? ((correctCount / totalCount) * 100).toFixed(0)
+            : "0";
+
+          review.innerHTML = `
+    <h2 style="text-align:center;margin-bottom:1rem;">🎉 Complete! ${totalCount}問 終了しました。</h2>
+    <p style="text-align:center;">正解 ${correctCount}・誤答 ${wrongCount}（正答率 ${acc}%）</p>
+    <hr style="margin:10px 0 15px;">
+    
+    <p id="loadingMessage" style="text-align:center; margin-top: 30px; font-size: 1.2rem; color: #888;">
+        📊 詳細な過去の学習履歴を読み込み中...
+    </p>
+    <div id="reviewDetailContainer"></div> 
+  `;
+          review.classList.remove("hidden");
+          review.scrollTop = 0;
+
+          google.script.run
+            .withSuccessHandler((stats) => {
+              const loadingMessage = document.getElementById("loadingMessage");
+              if (loadingMessage) loadingMessage.remove();
+
+              const map = new Map(stats.map((s) => [String(s.word_id), s]));
+              const detailContainer = document.getElementById(
+                "reviewDetailContainer"
+              );
+
+              let detailHtml = "";
+
+              reviewData.forEach((it) => {
+                const s = map.get(String(it.id));
+                const a = s ? (Number(s.accuracy) || 0).toFixed(0) + "%" : "—";
+
+                let hist = "—";
+                if (s && s.recent && s.recent.length) {
+                  const last3 = s.recent.slice(-3);
+                  const latest = last3[last3.length - 1];
+                  const color = latest === "◯" ? "#2e7d32" : "#e67b7b";
+
+                  hist = last3
+                    .map((mark, i) =>
+                      i === last3.length - 1
+                        ? `<span style="font-weight:900;font-size:1.2em;color:${color};">${mark}</span>`
+                        : mark
+                    )
+                    .join(" ");
+                }
+
+                const diffHTML = diffHighlight(it.answer, it.en);
+
+                detailHtml += `
+          <div style="border-top:1px solid #e6ebf7;padding:10px 0;">
+            <div style="font-weight:600;">
+              ${it.jp}
+              <span style="color:#556;font-size:.95rem;"> 正答率 ${a}</span>
+              <span style="color:#556;font-size:.95rem;"> 履歴：${hist}</span>
+            </div>
+            <div style="margin-top:.3rem;">
+              正　<span class="word-correct">${it.en}</span>
+              <span class="sound-btn" onclick="speak('${it.en.replace(
+                /'/g,
+                "\\'"
+              )}')">🔊</span>
+              <span class="ipa">${it.ipa || ""}</span>
+            </div>
+            <div>答　${diffHTML}</div>
+          </div>`;
+              });
+
+              detailHtml += `
+        <div style="text-align:center;margin-top:18px;">
+          <input id="retryCount" type="number" min="1" value="${targetCount}"
+                 style="width:110px;padding:.5em;border:2px solid #d0dbf1;border-radius:8px;text-align:center;">
+          <button id="retryBtn"
+                  style="font-size:1.05rem;margin-left:10px;padding:.6em 1.2em;border:none;border-radius:10px;background:var(--tone);color:#fff;cursor:pointer;">
+            🔁 もう一度チャレンジ
+          </button>
+        </div>`;
+
+              detailContainer.innerHTML = detailHtml;
+
+              document.getElementById("retryBtn").onclick = () => {
+                const input = document.getElementById("retryCount");
+                const val = Number(input.value) || 0;
+                targetCount = val > 0 ? val : words.length;
+
+                reviewData.length = 0;
+                totalCount = 0;
+                correctCount = 0;
+                wrongCount = 0;
+                currentIndex = 0;
+                reviewShown = false;
+                state = "idle";
+                clearAllTimers();
+                timerActive = false;
+
+                google.script.run
+                  .withSuccessHandler((list) => {
+                    words = list.map((r) => ({
+                      id: r.id,
+                      jp: r.japanese,
+                      en: r.english,
+                      ipa: r.phonetic,
+                    }));
+
+                    google.script.run
+                      .withSuccessHandler((statsMap) => {
+                        const grouped = {};
+                        words.forEach((w) => {
+                          const at = statsMap[w.id]?.attempt || 0;
+                          if (!grouped[at]) grouped[at] = [];
+                          grouped[at].push(w);
+                        });
+
+                        let ordered = [];
+                        Object.keys(grouped)
+                          .map(Number)
+                          .sort((a, b) => a - b)
+                          .forEach((key) => {
+                            ordered.push(...shuffleLocal(grouped[key]));
+                          });
+
+                        shuffled = ordered.slice(
+                          0,
+                          Math.min(targetCount, ordered.length)
+                        );
+
+                        review.classList.add("hidden");
+                        header.classList.remove("hidden");
+                        game.classList.remove("hidden");
+
+                        totalStart = Date.now();
+                        qStart = Date.now();
+                        timerActive = true;
+
+                        updateProgress();
+                        next.textContent = "Answer ▶";
+                        state = "idle";
+                        nextWord();
+                      })
+                      .getStatsForUser(userId);
+                  })
+                  .getAllWords();
+              };
+            })
+            .getUserStatsOnly(
+              userId,
+              reviewData.map((r) => r.id)
+            );
+        }
+
+        // ====== スタート（A/B/C） ======
+        modeBtns.forEach((btn) => {
+          btn.onclick = () => {
+            document
+              .querySelectorAll(".mode-btn")
+              .forEach((b) => b.classList.remove("active"));
+            btn.classList.add("active");
+
+            const n = nameInput.value.trim();
+            if (!n) {
+              alert("ユーザー名を入力してください。");
+              return;
+            }
+
+            warmupTTS();
+
+            const reqCount = Number(countInput.value);
+            if (Number.isFinite(reqCount) && reqCount > 0) {
+              targetCount = reqCount;
+            } else {
+              targetCount = 0;
+            }
+
+            btn.textContent = "読み込み中...";
+
+            google.script.run
+              .withSuccessHandler((id) => {
+                userId = id;
+
+                google.script.run
+                  .withSuccessHandler((list) => {
+                    words = list.map((r) => ({
+                      id: r.id,
+                      jp: r.japanese,
+                      en: r.english,
+                      ipa: r.phonetic,
+                    }));
+
+                    google.script.run
+                      .withSuccessHandler((statsMap) => {
+                        const grouped = {};
+                        words.forEach((w) => {
+                          const at = statsMap[w.id]?.attempt || 0;
+                          if (!grouped[at]) grouped[at] = [];
+                          grouped[at].push(w);
+                        });
+
+                        let ordered = [];
+                        Object.keys(grouped)
+                          .map(Number)
+                          .sort((a, b) => a - b)
+                          .forEach((key) => {
+                            ordered.push(...shuffleLocal(grouped[key]));
+                          });
+
+                        const finalCount =
+                          targetCount > 0 ? targetCount : ordered.length;
+                        targetCount = finalCount;
+
+                        shuffled = ordered.slice(
+                          0,
+                          Math.min(targetCount, ordered.length)
+                        );
+
+                        totalCount = 0;
+                        correctCount = 0;
+                        wrongCount = 0;
+                        currentIndex = 0;
+                        reviewData.length = 0;
+                        reviewShown = false;
+                        state = "idle";
+                        clearAllTimers();
+
+                        intro.classList.add("hidden");
+                        header.classList.remove("hidden");
+                        game.classList.remove("hidden");
+
+                        totalStart = Date.now();
+                        qStart = Date.now();
+                        timerActive = true;
+                        updateProgress();
+                        next.textContent = "Answer ▶";
+                        nextWord();
+                      })
+                      .getStatsForUser(userId);
+                  })
+                  .getAllWords();
+              })
+              .registerUser(n);
+          };
+        });
+
+        // ====== Nextボタン ======
+        next.onclick = () => {
+          if (state === "asking") {
+            judge(answer.value);
+          } else if (state === "judged") {
+            clearAllTimers();
+            nextWord();
+          }
+        };
+
+        // ====== Enterキー ======
+        answer.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            if (state === "asking") {
+              judge(answer.value);
+            } else if (state === "judged") {
+              clearAllTimers();
+              nextWord();
+            }
+          }
+        });
+
+        // ====== 入力中に正解したら即採点 ======
+        answer.addEventListener("input", () => {
+          if (!current || state !== "asking") return;
+          const v = normalizeText(answer.value);
+          const target = normalizeText(current.en);
+          if (v === target) {
+            judge(answer.value);
+          }
+        });
+
+        // ====== 問題タップで発音 ======
+        question.addEventListener("click", () => {
+          if (current && current.en) speak(current.en);
+        });
+      });
+    </script>
   </body>
 </html>
