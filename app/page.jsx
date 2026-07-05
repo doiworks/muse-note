@@ -296,6 +296,8 @@ export default function HomePage() {
   const wordListLoadMoreRef = useRef(null);
   const wordListScrollRef = useRef(null);
   const selectableWordsLoadingRef = useRef(false);
+  const selectableWordsAbortRef = useRef(null);
+  const selectableWordsRequestIdRef = useRef(0);
   const currentWord = game.quizWords[game.currentIndex] || null;
   const totalElapsed = game.now && game.totalStart ? game.now - game.totalStart : 0;
   const questionElapsed = game.now && game.questionStart ? game.now - game.questionStart : 0;
@@ -364,6 +366,29 @@ export default function HomePage() {
       answerRef.current?.focus({ preventScroll: true });
     }
   }, [game.screen, game.state, game.currentIndex]);
+
+  useEffect(() => {
+    if (!game.isWordPickerOpen) return undefined;
+    const search = game.wordSearchDraft.trim();
+    const timerId = setTimeout(() => {
+      const filters = search ? game.filters : { ...INITIAL_GAME.filters };
+      setGame((prev) => ({
+        ...prev,
+        filters,
+        draftFilters: search ? prev.draftFilters : filters,
+        wordSearchDraft: search,
+        wordSearch: search,
+        isLoading: true
+      }));
+      void fetchSelectableWordPage({ offset: 0, filters, search, searchMode: game.wordSearchMode }).catch((error) => {
+        if (error.name === 'AbortError') return;
+        setGame((prev) => ({ ...prev, isLoading: false, errorMessage: error.message }));
+      });
+    }, search ? 250 : 0);
+    return () => clearTimeout(timerId);
+  }, [game.isWordPickerOpen, game.wordSearchDraft, game.wordSearchMode]);
+
+  useEffect(() => () => selectableWordsAbortRef.current?.abort(), []);
 
   useEffect(() => () => clearAllTimers(), []);
 
@@ -619,10 +644,16 @@ export default function HomePage() {
   }
 
   async function fetchSelectableWordPage({ offset = 0, append = false, filters = gameRef.current.filters, search = gameRef.current.wordSearch, searchMode = gameRef.current.wordSearchMode } = {}) {
+    selectableWordsAbortRef.current?.abort();
+    const controller = new AbortController();
+    selectableWordsAbortRef.current = controller;
+    const requestId = selectableWordsRequestIdRef.current + 1;
+    selectableWordsRequestIdRef.current = requestId;
     const params = buildSelectableQueryParams({ offset, filters, search, searchMode });
-    const response = await fetch(`/api/words?${params.toString()}`);
+    const response = await fetch(`/api/words?${params.toString()}`, { signal: controller.signal });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || '単語データの取得に失敗しました。時間をおいて再度お試しください。');
+    if (requestId !== selectableWordsRequestIdRef.current || controller.signal.aborted) return data;
     setGame((prev) => {
       const nextWords = append ? [...prev.selectableWords, ...(data.words || [])] : (data.words || []);
       return {
@@ -637,6 +668,7 @@ export default function HomePage() {
         errorMessage: ''
       };
     });
+    if (selectableWordsAbortRef.current === controller) selectableWordsAbortRef.current = null;
     return data;
   }
 
@@ -670,6 +702,7 @@ export default function HomePage() {
     try {
       await fetchSelectableWordPage({ offset: current.selectableWordsOffset, append: true });
     } catch (error) {
+      if (error.name === 'AbortError') return;
       setGame((prev) => ({ ...prev, isLoadingMoreSelectableWords: false, errorMessage: error.message }));
     } finally {
       selectableWordsLoadingRef.current = false;
@@ -694,10 +727,15 @@ export default function HomePage() {
     return () => observer.disconnect();
   }, [loadMoreSelectableWords, game.isWordPickerOpen, game.selectableWordsHasMore, game.selectableWordsOffset]);
   async function handleQuestionModeChange(questionMode) {
+    const emptyFilters = { ...INITIAL_GAME.filters };
     setGame((prev) => {
       const next = {
         ...prev,
         questionMode,
+        filters: questionMode === 'select' ? emptyFilters : prev.filters,
+        draftFilters: questionMode === 'select' ? emptyFilters : prev.draftFilters,
+        wordSearchDraft: questionMode === 'select' ? '' : prev.wordSearchDraft,
+        wordSearch: questionMode === 'select' ? '' : prev.wordSearch,
         errorMessage: '',
         wrongModeFallbackAvailable: false,
         isLoading: questionMode === 'select' && !prev.selectableWordsFullyLoaded
@@ -707,8 +745,9 @@ export default function HomePage() {
     });
     if (questionMode !== 'select') return;
     try {
-      await Promise.all([fetchSelectableWordPage({ offset: 0 }), fetchSelectableCategories()]);
+      await Promise.all([fetchSelectableWordPage({ offset: 0, filters: emptyFilters, search: '' }), fetchSelectableCategories()]);
     } catch (error) {
+      if (error.name === 'AbortError') return;
       setGame((prev) => ({ ...prev, isLoading: false, errorMessage: error.message }));
       return;
     }
@@ -1133,20 +1172,23 @@ export default function HomePage() {
 
 
   async function openWordPicker(initialPanel = '') {
+    const emptyFilters = { ...INITIAL_GAME.filters };
     setGame((prev) => ({
       ...prev,
       isWordPickerOpen: true,
       pickerPanel: initialPanel,
-      draftFilters: initialPanel === 'category' ? { ...prev.filters } : prev.draftFilters,
+      filters: emptyFilters,
+      draftFilters: emptyFilters,
       pendingWordSetIds: initialPanel === 'open' ? [] : prev.pendingWordSetIds,
       wordSetSearch: initialPanel === 'open' ? '' : prev.wordSetSearch,
-      wordSearchDraft: prev.wordSearch,
+      wordSearchDraft: '',
+      wordSearch: '',
       isLoading: true,
       wordSetMessage: '',
       wordSetMessageType: ''
     }));
     try {
-      await Promise.all([fetchSelectableWordPage({ offset: 0 }), fetchSelectableCategories()]);
+      await fetchSelectableCategories();
     } catch (error) {
       setGame((prev) => ({ ...prev, isLoading: false, errorMessage: error.message }));
     }
@@ -1175,11 +1217,27 @@ export default function HomePage() {
   }
 
   async function applyWordSearch() {
-    const search = gameRef.current.wordSearchDraft;
-    setGame((prev) => ({ ...prev, wordSearch: search, isLoading: true }));
+    const search = gameRef.current.wordSearchDraft.trim();
+    setGame((prev) => ({ ...prev, wordSearchDraft: search, wordSearch: search, isLoading: true }));
     try {
       await fetchSelectableWordPage({ offset: 0, search });
     } catch (error) {
+      if (error.name === 'AbortError') return;
+      setGame((prev) => ({ ...prev, isLoading: false, errorMessage: error.message }));
+    }
+  }
+
+  function handleWordSearchChange(value) {
+    setGame((prev) => ({ ...prev, wordSearchDraft: value, wordSearch: value }));
+  }
+
+  async function clearWordSearch() {
+    const emptyFilters = { ...INITIAL_GAME.filters };
+    setGame((prev) => ({ ...prev, filters: emptyFilters, draftFilters: emptyFilters, wordSearchDraft: '', wordSearch: '', isLoading: true }));
+    try {
+      await fetchSelectableWordPage({ offset: 0, filters: emptyFilters, search: '' });
+    } catch (error) {
+      if (error.name === 'AbortError') return;
       setGame((prev) => ({ ...prev, isLoading: false, errorMessage: error.message }));
     }
   }
@@ -1212,6 +1270,7 @@ export default function HomePage() {
         await fetchSelectableWordPage({ offset: 0, filters });
       }
     } catch (error) {
+      if (error.name === 'AbortError') return;
       setGame((prev) => ({ ...prev, isLoading: false, errorMessage: error.message }));
     }
   }
@@ -1529,10 +1588,11 @@ export default function HomePage() {
                   className="searchInput pickerSearchInput"
                   placeholder="英語ならenglish、日本語ならjapaneseを検索"
                   value={game.wordSearchDraft}
-                  onChange={(event) => setGame((prev) => ({ ...prev, wordSearchDraft: event.target.value }))}
+                  onChange={(event) => handleWordSearchChange(event.target.value)}
                   onKeyDown={handleWordSearchKeyDown}
                 />
                 <button type="button" className="pickerActionBtn primaryAction" onClick={() => void applyWordSearch()}>検索</button>
+                <button type="button" className="pickerActionBtn" onClick={() => void clearWordSearch()} disabled={!game.wordSearchDraft && !game.wordSearch}>×</button>
                 <label className={`pillCheck fullTextToggle ${game.wordSearchMode === 'full' ? 'active' : ''}`}>
                   <input
                     type="checkbox"
