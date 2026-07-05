@@ -28,6 +28,8 @@ const WORD_FETCH_ERROR_MESSAGE = '単語データの取得に失敗しました�
 const PREVIEW_USER_ID = '00000000-0000-4000-8000-000000000001';
 const DEFAULT_FETCH_LIMIT = 200;
 const MAX_FETCH_LIMIT = 500;
+const WORD_PAGE_SIZE = 500;
+const STATS_FILTER_CHUNK_SIZE = 500;
 const WORD_MODE = {
   BALANCED: 'balanced',
   WRONG: 'wrong',
@@ -93,6 +95,109 @@ function sortWordsForBalancedQuestions(wordsWithStats) {
   });
 }
 
+
+function rankWordForWrongOrder(word) {
+  const stats = word?.stats || {};
+  const lastWrongAt = stats.last_wrong ? Date.parse(stats.last_wrong) : null;
+  const lastAnsweredAt = word?.last_answered_at ? Date.parse(word.last_answered_at) : null;
+
+  return {
+    mistakeCount: Number(stats.mistake_count ?? 0),
+    accuracy: Number(stats.accuracy ?? 100),
+    hasLastWrong: Boolean(stats.last_wrong),
+    lastWrongScore: Number.isFinite(lastWrongAt) ? lastWrongAt : Number.NEGATIVE_INFINITY,
+    isImportant: Number(word?.importance) === 1,
+    attemptCount: Number(stats.attempt_count ?? 0),
+    recencyScore: Number.isFinite(lastAnsweredAt) ? lastAnsweredAt : Number.NEGATIVE_INFINITY,
+    tieBreaker: Math.random()
+  };
+}
+
+function sortWordsForWrongQuestions(wordsWithStats) {
+  return [...wordsWithStats].sort((a, b) => {
+    const rankA = rankWordForWrongOrder(a);
+    const rankB = rankWordForWrongOrder(b);
+
+    if (rankA.mistakeCount !== rankB.mistakeCount) return rankB.mistakeCount - rankA.mistakeCount;
+    if (rankA.accuracy !== rankB.accuracy) return rankA.accuracy - rankB.accuracy;
+    if (rankA.hasLastWrong !== rankB.hasLastWrong) return rankA.hasLastWrong ? -1 : 1;
+    if (rankA.lastWrongScore !== rankB.lastWrongScore) return rankB.lastWrongScore - rankA.lastWrongScore;
+    if (rankA.isImportant !== rankB.isImportant) return rankA.isImportant ? -1 : 1;
+    if (rankA.attemptCount !== rankB.attemptCount) return rankA.attemptCount - rankB.attemptCount;
+    if (rankA.recencyScore !== rankB.recencyScore) return rankA.recencyScore - rankB.recencyScore;
+    return rankA.tieBreaker - rankB.tieBreaker;
+  });
+}
+
+async function fetchWordPage(supabaseAdmin, offset, limit) {
+  return supabaseAdmin
+    .from('words')
+    .select(WORD_COLUMNS)
+    .order('id', { ascending: true })
+    .range(offset, offset + limit - 1);
+}
+
+async function fetchAllWords(supabaseAdmin) {
+  const allWords = [];
+  let offset = 0;
+  let hasMore = true;
+
+  while (hasMore) {
+    const { data, error } = await fetchWordPage(supabaseAdmin, offset, WORD_PAGE_SIZE);
+    if (error) return { data: null, error };
+
+    const wordRows = data ?? [];
+    allWords.push(...wordRows);
+    hasMore = wordRows.length === WORD_PAGE_SIZE;
+    offset += WORD_PAGE_SIZE;
+  }
+
+  return { data: allWords, error: null };
+}
+
+async function fetchStatsForWordIds(supabaseAdmin, wordIds) {
+  const statsRows = [];
+
+  for (let index = 0; index < wordIds.length; index += STATS_FILTER_CHUNK_SIZE) {
+    const wordIdChunk = wordIds.slice(index, index + STATS_FILTER_CHUNK_SIZE);
+    if (!wordIdChunk.length) continue;
+
+    const { data, error } = await supabaseAdmin
+      .from('stats')
+      .select('word_id,accuracy,attempt_count,success_count,mistake_count,last_correct,last_wrong,updated_at')
+      .eq('app_user_id', PREVIEW_USER_ID)
+      .in('word_id', wordIdChunk);
+
+    if (error) return { data: null, error };
+    statsRows.push(...(data ?? []));
+  }
+
+  return { data: statsRows, error: null };
+}
+
+function attachStatsToWords(wordRows, statsRows) {
+  const statsMap = Object.fromEntries(
+    (statsRows ?? []).map((row) => [
+      row.word_id,
+      {
+        accuracy: row.accuracy,
+        attempt_count: row.attempt_count,
+        success_count: row.success_count,
+        mistake_count: row.mistake_count,
+        last_correct: row.last_correct,
+        last_wrong: row.last_wrong,
+        updated_at: row.updated_at
+      }
+    ])
+  );
+
+  return wordRows.map((word) => ({
+    ...word,
+    stats: statsMap[word.id] ?? null,
+    last_answered_at: statsMap[word.id]?.updated_at ?? null
+  }));
+}
+
 export async function GET(request) {
   const sessionCookie = request.cookies.get(PREVIEW_SESSION_COOKIE_NAME)?.value;
   const isLoggedIn = await verifyPreviewSessionCookieValue(sessionCookie);
@@ -110,64 +215,39 @@ export async function GET(request) {
     const isWrongMode = modeParam === WORD_MODE.WRONG || modeParam === 'review';
     const isSelectMode = modeParam === WORD_MODE.SELECT;
 
-    const { data, error } = await supabaseAdmin
-      .from('words')
-      .select(WORD_COLUMNS)
-      .order('id', { ascending: true })
-      .range(offset, offset + limit - 1);
-
-    if (error) {
-      console.error('Failed to fetch words with service role client:', error);
-      return createErrorResponse(WORD_FETCH_ERROR_MESSAGE, 500);
-    }
-
-    const wordRows = data ?? [];
-    const hasMore = wordRows.length === limit;
-    const wordIds = wordRows.map((word) => word.id).filter(hasIdValue);
-
-    let statsMap = {};
-
-    if (wordIds.length) {
-      const { data: statsRows, error: statsError } = await supabaseAdmin
-        .from('stats')
-        .select('word_id,accuracy,attempt_count,success_count,mistake_count,last_correct,last_wrong,updated_at')
-        .eq('app_user_id', PREVIEW_USER_ID)
-        .in('word_id', wordIds);
-
-      if (statsError) {
-        console.error('Failed to fetch stats with service role client:', statsError);
+    if (isSelectMode) {
+      const { data, error } = await fetchWordPage(supabaseAdmin, offset, limit);
+      if (error) {
+        console.error('Failed to fetch words with service role client:', error);
         return createErrorResponse(WORD_FETCH_ERROR_MESSAGE, 500);
       }
 
-      statsMap = Object.fromEntries(
-        (statsRows ?? []).map((row) => [
-          row.word_id,
-          {
-            accuracy: row.accuracy,
-            attempt_count: row.attempt_count,
-            success_count: row.success_count,
-            mistake_count: row.mistake_count,
-            last_correct: row.last_correct,
-            last_wrong: row.last_wrong,
-            updated_at: row.updated_at
-          }
-        ])
-      );
-
+      const wordRows = data ?? [];
+      return NextResponse.json({ words: attachStatsToWords(wordRows, []), has_more: wordRows.length === limit });
     }
 
-    const wordsWithStats = wordRows.map((word) => ({
-      ...word,
-      stats: statsMap[word.id] ?? null,
-      last_answered_at: statsMap[word.id]?.updated_at ?? null
-    }));
+    const { data: wordRows, error } = await fetchAllWords(supabaseAdmin);
+    if (error) {
+      console.error('Failed to fetch all words with service role client:', error);
+      return createErrorResponse(WORD_FETCH_ERROR_MESSAGE, 500);
+    }
 
+    const wordIds = (wordRows ?? []).map((word) => word.id).filter(hasIdValue);
+    const { data: statsRows, error: statsError } = await fetchStatsForWordIds(supabaseAdmin, wordIds);
+    if (statsError) {
+      console.error('Failed to fetch stats with service role client:', statsError);
+      return createErrorResponse(WORD_FETCH_ERROR_MESSAGE, 500);
+    }
+
+    const wordsWithStats = attachStatsToWords(wordRows ?? [], statsRows ?? []);
     const candidateWords = isWrongMode
       ? wordsWithStats.filter((word) => Number(word?.stats?.mistake_count ?? 0) > 0)
       : wordsWithStats;
-    const responseWords = isSelectMode ? candidateWords : sortWordsForBalancedQuestions(candidateWords);
+    const responseWords = isWrongMode
+      ? sortWordsForWrongQuestions(candidateWords)
+      : sortWordsForBalancedQuestions(candidateWords);
 
-    return NextResponse.json({ words: responseWords, has_more: hasMore });
+    return NextResponse.json({ words: responseWords.slice(0, limit), has_more: false });
   } catch (error) {
     console.error('Failed to initialize or use Supabase service role client:', error);
     return createErrorResponse(WORD_FETCH_ERROR_MESSAGE, 500);
