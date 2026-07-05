@@ -294,6 +294,8 @@ export default function HomePage() {
   const gameRef = useRef(INITIAL_GAME);
   const audioContextRef = useRef(null);
   const wordListLoadMoreRef = useRef(null);
+  const wordListScrollRef = useRef(null);
+  const selectableWordsLoadingRef = useRef(false);
   const currentWord = game.quizWords[game.currentIndex] || null;
   const totalElapsed = game.now && game.totalStart ? game.now - game.totalStart : 0;
   const questionElapsed = game.now && game.questionStart ? game.now - game.questionStart : 0;
@@ -662,22 +664,32 @@ export default function HomePage() {
 
   const loadMoreSelectableWords = useCallback(async () => {
     const current = gameRef.current;
-    if (!current.isWordPickerOpen || current.isLoading || current.isLoadingMoreSelectableWords || !current.selectableWordsHasMore || current.filters.selectedOnly) return;
+    if (selectableWordsLoadingRef.current || !current.isWordPickerOpen || current.isLoading || current.isLoadingMoreSelectableWords || !current.selectableWordsHasMore || current.filters.selectedOnly) return;
+    selectableWordsLoadingRef.current = true;
     setGame((prev) => ({ ...prev, isLoadingMoreSelectableWords: true }));
     try {
       await fetchSelectableWordPage({ offset: current.selectableWordsOffset, append: true });
     } catch (error) {
       setGame((prev) => ({ ...prev, isLoadingMoreSelectableWords: false, errorMessage: error.message }));
+    } finally {
+      selectableWordsLoadingRef.current = false;
     }
   }, []);
+
+  const handleWordListScroll = useCallback((event) => {
+    const target = event.currentTarget;
+    const remainingScroll = target.scrollHeight - target.scrollTop - target.clientHeight;
+    if (remainingScroll <= 240) void loadMoreSelectableWords();
+  }, [loadMoreSelectableWords]);
 
 
   useEffect(() => {
     const target = wordListLoadMoreRef.current;
-    if (!target || typeof IntersectionObserver === 'undefined') return undefined;
+    const root = wordListScrollRef.current;
+    if (!target || !root || typeof IntersectionObserver === 'undefined') return undefined;
     const observer = new IntersectionObserver((entries) => {
       if (entries.some((entry) => entry.isIntersecting)) void loadMoreSelectableWords();
-    }, { rootMargin: '240px' });
+    }, { root, rootMargin: '240px 0px' });
     observer.observe(target);
     return () => observer.disconnect();
   }, [loadMoreSelectableWords, game.isWordPickerOpen, game.selectableWordsHasMore, game.selectableWordsOffset]);
@@ -1677,7 +1689,7 @@ export default function HomePage() {
                 <h3>単語一覧</h3>
                 <span>全{game.selectableWordsTotal}語 / 表示{filteredWords.length}語</span>
               </div>
-              <div className="wordList inModal">
+              <div className="wordList inModal" ref={wordListScrollRef} onScroll={handleWordListScroll}>
                 {game.isLoading ? (
                   <div className="wordListEmpty">
                     <p>単語一覧を読み込んでいます</p>
