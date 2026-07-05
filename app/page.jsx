@@ -47,6 +47,7 @@ const INITIAL_GAME = {
   questionMode: 'balanced',
   words: [],
   selectableWords: [],
+  selectableWordsFullyLoaded: false,
   selectedWordIds: [],
   wordSets: [],
   selectedWordSetId: '',
@@ -643,15 +644,17 @@ export default function HomePage() {
         questionMode,
         errorMessage: '',
         wrongModeFallbackAvailable: false,
-        isLoading: questionMode === 'select' && prev.selectableWords.length === 0
+        isLoading: questionMode === 'select' && !prev.selectableWordsFullyLoaded
       };
       gameRef.current = next;
       return next;
     });
     if (questionMode !== 'select') return;
     try {
-      const words = gameRef.current.selectableWords.length ? gameRef.current.selectableWords : await fetchAllSelectableWords();
-      setGame((prev) => ({ ...prev, selectableWords: words, isLoading: false }));
+      const words = gameRef.current.selectableWordsFullyLoaded
+        ? gameRef.current.selectableWords
+        : await fetchAllSelectableWords();
+      setGame((prev) => ({ ...prev, selectableWords: words, selectableWordsFullyLoaded: true, isLoading: false }));
     } catch (error) {
       setGame((prev) => ({ ...prev, isLoading: false, errorMessage: error.message }));
       return;
@@ -713,6 +716,7 @@ export default function HomePage() {
         questionMode: activeQuestionMode,
         words,
         selectableWords: current.selectableWords,
+        selectableWordsFullyLoaded: current.selectableWordsFullyLoaded,
         selectedWordIds: current.selectedWordIds,
         wordSets: current.wordSets,
         selectedWordSetId: current.selectedWordSetId,
@@ -909,6 +913,7 @@ export default function HomePage() {
         questionMode: current.questionMode,
         words,
         selectableWords: current.selectableWords,
+        selectableWordsFullyLoaded: current.selectableWordsFullyLoaded,
         selectedWordIds: current.selectedWordIds,
         wordSets: current.wordSets,
         selectedWordSetId: current.selectedWordSetId,
@@ -947,6 +952,7 @@ export default function HomePage() {
       questionMode: current.questionMode,
       words: current.words,
       selectableWords: current.selectableWords,
+      selectableWordsFullyLoaded: current.selectableWordsFullyLoaded,
       selectedWordIds: current.selectedWordIds,
       wordSets: current.wordSets,
       selectedWordSetId: current.selectedWordSetId,
