@@ -35,7 +35,9 @@ export async function GET(request, { params }) {
       .eq('word_set_id', setId);
     if (itemError) return errorResponse('セット内容の取得に失敗しました。', 500);
 
-    const wordIds = (itemRows || []).map((row) => row.word_id).filter(Boolean);
+    const wordIds = (itemRows || [])
+      .map((row) => row.word_id)
+      .filter((wordId) => wordId !== null && wordId !== undefined);
     if (!wordIds.length) return NextResponse.json({ id: setId, name: wordSet.name, words: [] });
 
     const { data: words, error: wordsError } = await supabaseAdmin

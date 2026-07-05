@@ -50,7 +50,7 @@ export async function POST(request) {
   const name = typeof body?.name === 'string' ? body.name.trim() : '';
   const description = typeof body?.description === 'string' ? body.description.trim() : null;
   const wordIds = Array.isArray(body?.word_ids)
-    ? [...new Set(body.word_ids.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))]
+    ? [...new Set(body.word_ids.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id >= 0))]
     : [];
 
   if (!name) return errorResponse('name は必須です。', 400);

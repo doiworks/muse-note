@@ -493,7 +493,7 @@ export default function HomePage() {
 
   function prepareWords(words, requestedCount, questionMode = 'balanced') {
     const availableWords = words
-      .filter((word) => word?.id && word?.japanese && word?.english)
+      .filter((word) => word?.id !== null && word?.id !== undefined && word?.japanese && word?.english)
       .map((word) => ({
         id: word.id,
         japanese: word.japanese,
@@ -597,7 +597,7 @@ export default function HomePage() {
       const candidateLimit = Math.max(MIN_CANDIDATE_FETCH, requested);
       const safeLimit = Math.min(candidateLimit, MAX_FETCH_LIMIT);
       const serverMode = questionMode === 'wrong' ? 'wrong' : 'balanced';
-      const query = `?limit=${safeLimit}&mode=${serverMode}`;
+      const query = `?limit=${safeLimit}&offset=0&mode=${serverMode}`;
       const response = await fetch(`/api/words${query}`);
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -609,18 +609,51 @@ export default function HomePage() {
     }
   }
 
+  async function fetchAllSelectableWords() {
+    console.time?.('fetchAllSelectableWords');
+    try {
+      const allWords = [];
+      let offset = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        const query = `?limit=${MAX_FETCH_LIMIT}&offset=${offset}&mode=select`;
+        const response = await fetch(`/api/words${query}`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || '単語データの取得に失敗しました。時間をおいて再度お試しください。');
+        }
+
+        const words = data.words || [];
+        allWords.push(...words);
+        hasMore = Boolean(data.has_more);
+        offset += MAX_FETCH_LIMIT;
+      }
+
+      return allWords;
+    } finally {
+      console.timeEnd?.('fetchAllSelectableWords');
+    }
+  }
+
   async function handleQuestionModeChange(questionMode) {
     setGame((prev) => {
-      const next = { ...prev, questionMode, errorMessage: '', wrongModeFallbackAvailable: false };
+      const next = {
+        ...prev,
+        questionMode,
+        errorMessage: '',
+        wrongModeFallbackAvailable: false,
+        isLoading: questionMode === 'select' && prev.selectableWords.length === 0
+      };
       gameRef.current = next;
       return next;
     });
     if (questionMode !== 'select') return;
     try {
-      const words = game.selectableWords.length ? game.selectableWords : await fetchWords(null, questionMode);
-      setGame((prev) => ({ ...prev, selectableWords: words }));
+      const words = gameRef.current.selectableWords.length ? gameRef.current.selectableWords : await fetchAllSelectableWords();
+      setGame((prev) => ({ ...prev, selectableWords: words, isLoading: false }));
     } catch (error) {
-      setGame((prev) => ({ ...prev, errorMessage: error.message }));
+      setGame((prev) => ({ ...prev, isLoading: false, errorMessage: error.message }));
       return;
     }
     try {
@@ -708,7 +741,7 @@ export default function HomePage() {
 
   async function saveAnswerHistory({ word, answer, correct }) {
     console.time?.('saveAnswerHistory');
-    if (!word?.id) return;
+    if (word?.id === null || word?.id === undefined) return;
 
     try {
       const response = await fetch('/api/history', {
@@ -1189,6 +1222,7 @@ export default function HomePage() {
             {game.questionMode === 'select' && (
               <div className="selectArea">
                 <p className="selectedCount">選択中：{game.selectedWordIds.length}語</p>
+                {game.isLoading && <p className="wordListHint">単語一覧を読み込んでいます</p>}
                 <div className="selectAreaActions">
                   <button type="button" className="openWordModalBtn primaryOpen" onClick={() => void openWordPicker()}>
                     単語を選ぶ
@@ -1549,13 +1583,17 @@ export default function HomePage() {
                 <span>{filteredWords.length}語</span>
               </div>
               <div className="wordList inModal">
-                {shouldShowWordListEmptyState && (
+                {game.isLoading ? (
+                  <div className="wordListEmpty">
+                    <p>単語一覧を読み込んでいます</p>
+                  </div>
+                ) : shouldShowWordListEmptyState && (
                   <div className="wordListEmpty">
                     <p>条件に合う単語がありません</p>
                     <p>検索やカテゴリを少し減らしてください</p>
                   </div>
                 )}
-                {filteredWords.map((word) => (
+                {!game.isLoading && filteredWords.map((word) => (
                   <WordRow
                     key={word.id}
                     word={word}
