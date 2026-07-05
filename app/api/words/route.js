@@ -30,7 +30,8 @@ const DEFAULT_FETCH_LIMIT = 200;
 const MAX_FETCH_LIMIT = 500;
 const WORD_MODE = {
   BALANCED: 'balanced',
-  WRONG: 'wrong'
+  WRONG: 'wrong',
+  SELECT: 'select'
 };
 
 function createErrorResponse(message, status) {
@@ -43,6 +44,18 @@ function parseLimit(value) {
     return DEFAULT_FETCH_LIMIT;
   }
   return Math.min(Math.floor(parsed), MAX_FETCH_LIMIT);
+}
+
+function parseOffset(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return 0;
+  }
+  return Math.floor(parsed);
+}
+
+function hasIdValue(value) {
+  return value !== null && value !== undefined;
 }
 
 function rankWordForBalancedOrder(word) {
@@ -92,14 +105,16 @@ export async function GET(request) {
     const supabaseAdmin = getSupabaseAdmin();
     const searchParams = new URL(request.url).searchParams;
     const limit = parseLimit(searchParams.get('limit'));
+    const offset = parseOffset(searchParams.get('offset'));
     const modeParam = String(searchParams.get('mode') || WORD_MODE.BALANCED).toLowerCase();
     const isWrongMode = modeParam === WORD_MODE.WRONG || modeParam === 'review';
+    const isSelectMode = modeParam === WORD_MODE.SELECT;
 
     const { data, error } = await supabaseAdmin
       .from('words')
       .select(WORD_COLUMNS)
       .order('id', { ascending: true })
-      .limit(limit);
+      .range(offset, offset + limit - 1);
 
     if (error) {
       console.error('Failed to fetch words with service role client:', error);
@@ -107,7 +122,8 @@ export async function GET(request) {
     }
 
     const wordRows = data ?? [];
-    const wordIds = wordRows.map((word) => word.id).filter(Boolean);
+    const hasMore = wordRows.length === limit;
+    const wordIds = wordRows.map((word) => word.id).filter(hasIdValue);
 
     let statsMap = {};
 
@@ -149,9 +165,9 @@ export async function GET(request) {
     const candidateWords = isWrongMode
       ? wordsWithStats.filter((word) => Number(word?.stats?.mistake_count ?? 0) > 0)
       : wordsWithStats;
-    const balancedWords = sortWordsForBalancedQuestions(candidateWords);
+    const responseWords = isSelectMode ? candidateWords : sortWordsForBalancedQuestions(candidateWords);
 
-    return NextResponse.json({ words: balancedWords });
+    return NextResponse.json({ words: responseWords, has_more: hasMore });
   } catch (error) {
     console.error('Failed to initialize or use Supabase service role client:', error);
     return createErrorResponse(WORD_FETCH_ERROR_MESSAGE, 500);
