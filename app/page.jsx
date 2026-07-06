@@ -1592,7 +1592,7 @@ export default function HomePage() {
                   onKeyDown={handleWordSearchKeyDown}
                 />
                 <button type="button" className="pickerActionBtn primaryAction" onClick={() => void applyWordSearch()}>検索</button>
-                <button type="button" className="pickerActionBtn" onClick={() => void clearWordSearch()} disabled={!game.wordSearchDraft && !game.wordSearch}>×</button>
+                <button type="button" className="pickerActionBtn pickerSearchClearBtn" onClick={() => void clearWordSearch()} disabled={!game.wordSearchDraft && !game.wordSearch} aria-label="検索をクリア">×</button>
                 <label className={`pillCheck fullTextToggle ${game.wordSearchMode === 'full' ? 'active' : ''}`}>
                   <input
                     type="checkbox"
@@ -2716,8 +2716,17 @@ export default function HomePage() {
           gap: 8px;
         }
         .simpleSearchRow {
-          grid-template-columns: minmax(180px, 1fr) auto;
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
           gap: 8px;
+        }
+        .simpleSearchRow .pickerSearchInput {
+          flex: 1 1 220px;
+          min-width: 0;
+        }
+        .simpleSearchRow .fullTextToggle {
+          flex: 0 0 auto;
         }
         .pickerActionBtn {
           border: 1px solid #bad2ef;
@@ -2734,6 +2743,13 @@ export default function HomePage() {
           background: #e7f3ff;
           border-color: #8fc0ef;
           color: #27649d;
+        }
+        .pickerSearchClearBtn {
+          width: 2.4rem;
+          min-width: 2.4rem;
+          padding-left: 0;
+          padding-right: 0;
+          text-align: center;
         }
         .selectedInline {
           margin-left: auto;
@@ -3102,7 +3118,7 @@ export default function HomePage() {
             justify-content: flex-end;
           }
           .simpleSearchRow {
-            grid-template-columns: 1fr auto;
+            display: flex;
           }
           .pickerPrimaryActions {
             display: grid;
@@ -3148,7 +3164,7 @@ export default function HomePage() {
             gap: 8px;
           }
           .pickerSearchRow.simpleSearchRow {
-            grid-template-columns: 1fr auto;
+            display: flex;
           }
           .pickerDecisionBox {
             justify-content: space-between;

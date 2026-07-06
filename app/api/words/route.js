@@ -22,7 +22,19 @@ function hasIdValue(value) { return value !== null && value !== undefined; }
 function escapeLike(value) { return String(value).replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_'); }
 function isAlphabetSearch(value) { return /^[\p{Script=Latin}\d\s'’-]+$/u.test(value); }
 function normalizeSearch(value) { return String(value || '').normalize('NFKC').trim(); }
-function parseIds(value) { return String(value || '').split(',').map((id) => Number(id)).filter((id) => Number.isInteger(id) && id >= 0); }
+function parseIds(value) {
+  if (value === null || value === undefined) return [];
+
+  const text = String(value).trim();
+  if (!text) return [];
+
+  return text
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => item !== '')
+    .map((item) => Number(item))
+    .filter((id) => Number.isInteger(id) && id >= 0);
+}
 
 function rankWordForBalancedOrder(word) {
   const attemptCount = Number(word?.stats?.attempt_count ?? 0);
@@ -170,8 +182,9 @@ export async function GET(request) {
     }
 
     if (isSelectMode) {
-      const ids = parseIds(searchParams.get('ids'));
-      if (ids.length) {
+      const idsParam = searchParams.get('ids');
+      const ids = parseIds(idsParam);
+      if (idsParam !== null && String(idsParam).trim() !== '' && ids.length) {
         const { data, error } = await supabaseAdmin.from('words').select(SELECT_WORD_COLUMNS).in('id', ids);
         if (error) return createErrorResponse(WORD_FETCH_ERROR_MESSAGE, 500);
         return NextResponse.json({ words: attachStatsToWords(data ?? [], []), total: data?.length ?? 0, has_more: false });
