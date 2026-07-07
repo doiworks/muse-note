@@ -14,19 +14,13 @@ const WORD_COLUMNS = [
   'importance',
   'japanese',
   'english',
-  'phonetic',
-  'example',
-  'pos_code',
-  'pos_full',
-  'pos_j',
-  'antonym',
-  'antonym_jp',
-  'text'
+  'phonetic'
 ].join(',');
+const WORD_ID_COLUMNS = 'id';
 
 const WORD_FETCH_ERROR_MESSAGE = '単語データの取得に失敗しました。時間をおいて再度お試しください。';
 const PREVIEW_USER_ID = '00000000-0000-4000-8000-000000000001';
-const DEFAULT_FETCH_LIMIT = 200;
+const DEFAULT_FETCH_LIMIT = 50;
 const MAX_FETCH_LIMIT = 500;
 const WORD_PAGE_SIZE = 500;
 const STATS_FILTER_CHUNK_SIZE = 500;
@@ -58,6 +52,104 @@ function parseOffset(value) {
 
 function hasIdValue(value) {
   return value !== null && value !== undefined;
+}
+
+const FILTER_COLUMNS = ['school_level', 'grade', 'term', 'exam_type', 'category1', 'category2', 'category3'];
+
+function normalizeSearchValue(value) {
+  return value ? value.normalize('NFKC').trim() : '';
+}
+
+function detectSearchColumn(searchText) {
+  if (!searchText) return null;
+  return /^[\x00-\x7F]+$/.test(searchText) ? 'english' : 'japanese';
+}
+
+function escapeLikePattern(value) {
+  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+
+function applySelectFilters(query, searchParams) {
+  FILTER_COLUMNS.forEach((column) => {
+    const value = searchParams.get(column);
+    if (hasValue(value)) query = query.eq(column, value);
+  });
+
+  if (searchParams.get('importantOnly') === '1') {
+    query = query.eq('importance', 1);
+  }
+
+  const searchText = normalizeSearchValue(searchParams.get('search'));
+  const searchColumn = detectSearchColumn(searchText);
+  if (searchColumn) {
+    query = query.ilike(searchColumn, `%${escapeLikePattern(searchText)}%`);
+  }
+
+  return query;
+}
+
+function sortSelectWords(words, searchText) {
+  const normalizedSearch = normalizeSearchValue(searchText).toLowerCase();
+  const searchColumn = detectSearchColumn(normalizedSearch);
+  if (!normalizedSearch || !searchColumn) return words;
+
+  return [...words].sort((a, b) => {
+    const valueA = normalizeSearchValue(a?.[searchColumn]).toLowerCase();
+    const valueB = normalizeSearchValue(b?.[searchColumn]).toLowerCase();
+    const rank = (value) => {
+      if (value === normalizedSearch) return 0;
+      if (value.startsWith(normalizedSearch)) return 1;
+      return 2;
+    };
+    const rankDiff = rank(valueA) - rank(valueB);
+    if (rankDiff !== 0) return rankDiff;
+    return Number(a.id) - Number(b.id);
+  });
+}
+
+
+function parseIds(value) {
+  if (!value) return [];
+  return String(value)
+    .split(',')
+    .map((id) => Number(id))
+    .filter((id) => Number.isFinite(id));
+}
+
+async function fetchSelectWordsByIds(supabaseAdmin, ids) {
+  if (!ids.length) return { data: [], error: null };
+  const { data, error } = await supabaseAdmin
+    .from('words')
+    .select(WORD_COLUMNS)
+    .in('id', ids);
+  if (error) return { data: null, error };
+  const order = new Map(ids.map((id, index) => [id, index]));
+  return { data: [...(data ?? [])].sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0)), error: null };
+}
+
+async function fetchSelectWords(supabaseAdmin, searchParams, { columns = WORD_COLUMNS, fetchAllIds = false } = {}) {
+  const offset = parseOffset(searchParams.get('offset'));
+  const limit = parseLimit(searchParams.get('limit'));
+  const searchText = normalizeSearchValue(searchParams.get('search'));
+  let query = supabaseAdmin
+    .from('words')
+    .select(columns, { count: 'exact' });
+
+  query = applySelectFilters(query, searchParams);
+  query = query.order('id', { ascending: true });
+  if (!fetchAllIds) query = query.range(offset, offset + limit - 1);
+
+  const { data, error, count } = await query;
+  if (error) return { data: null, error };
+
+  const sorted = sortSelectWords(data ?? [], searchText);
+  return {
+    data: sorted,
+    error: null,
+    total: count ?? sorted.length,
+    hasMore: !fetchAllIds && offset + sorted.length < (count ?? 0),
+    nextCursor: !fetchAllIds && offset + sorted.length < (count ?? 0) ? offset + sorted.length : null
+  };
 }
 
 function rankWordForBalancedOrder(word) {
@@ -216,14 +308,33 @@ export async function GET(request) {
     const isSelectMode = modeParam === WORD_MODE.SELECT;
 
     if (isSelectMode) {
-      const { data, error } = await fetchWordPage(supabaseAdmin, offset, limit);
-      if (error) {
-        console.error('Failed to fetch words with service role client:', error);
+      const requestedIds = parseIds(searchParams.get('ids'));
+      if (requestedIds.length) {
+        const { data, error } = await fetchSelectWordsByIds(supabaseAdmin, requestedIds);
+        if (error) {
+          console.error('Failed to fetch selected words with service role client:', error);
+          return createErrorResponse(WORD_FETCH_ERROR_MESSAGE, 500);
+        }
+        return NextResponse.json({ words: attachStatsToWords(data ?? [], []), total: data?.length ?? 0, has_more: false, next_cursor: null });
+      }
+
+      const idsOnly = searchParams.get('ids_only') === '1';
+      const result = await fetchSelectWords(supabaseAdmin, searchParams, {
+        columns: idsOnly ? WORD_ID_COLUMNS : WORD_COLUMNS,
+        fetchAllIds: idsOnly
+      });
+      if (result.error) {
+        console.error('Failed to fetch words with service role client:', result.error);
         return createErrorResponse(WORD_FETCH_ERROR_MESSAGE, 500);
       }
 
-      const wordRows = data ?? [];
-      return NextResponse.json({ words: attachStatsToWords(wordRows, []), has_more: wordRows.length === limit });
+      return NextResponse.json({
+        words: idsOnly ? [] : attachStatsToWords(result.data ?? [], []),
+        ids: idsOnly ? (result.data ?? []).map((word) => word.id).filter(hasIdValue) : undefined,
+        total: result.total,
+        has_more: result.hasMore,
+        next_cursor: result.nextCursor
+      });
     }
 
     const { data: wordRows, error } = await fetchAllWords(supabaseAdmin);
