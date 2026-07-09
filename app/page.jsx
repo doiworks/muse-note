@@ -319,6 +319,15 @@ export default function HomePage() {
   const virtualPaddingTop = virtualRange.start * WORD_ROW_HEIGHT;
   const virtualPaddingBottom = Math.max(0, (filteredWords.length - virtualRange.end) * WORD_ROW_HEIGHT);
 
+  useEffect(() => {
+    if (game.questionMode !== 'select' || !game.isWordPickerOpen) return;
+    if (!game.selectableWordsHasMore || selectFetchRef.current.isFetching) return;
+    const remainingLoadedRows = filteredWords.length - virtualRange.end;
+    if (remainingLoadedRows <= PREFETCH_REMAINING_ROWS) {
+      void fetchSelectableWordPage({ offset: game.selectableWordsNextCursor });
+    }
+  }, [game.questionMode, game.isWordPickerOpen, game.selectableWordsHasMore, game.selectableWordsNextCursor, filteredWords.length, virtualRange.end]);
+
   const selectedCount = game.selectedWordIds.length;
   const selectedOnlyDisabled = selectedCount === 0;
   const activeFilterCount = useMemo(() => Object.values(game.filters).filter(Boolean).length, [game.filters]);
@@ -343,7 +352,7 @@ export default function HomePage() {
     wordListRef.current?.scrollTo({ top: 0 });
     setVirtualScrollTop(0);
     void fetchSelectableWordPage({ offset: 0, replace: true, filters: game.filters, search: game.wordSearch });
-  }, [game.questionMode, game.isWordPickerOpen, game.filters, game.wordSearch]);
+  }, [game.questionMode, game.isWordPickerOpen, game.filters, game.wordSearch, game.selectedWordIds]);
 
   useEffect(() => {
     function updateVoices() {
@@ -615,6 +624,12 @@ export default function HomePage() {
       if (filters[key]) params.set(key, filters[key]);
     });
     if (filters.importantOnly) params.set('importantOnly', '1');
+    if (filters.selectedOnly) {
+      params.set('selectedOnly', '1');
+      if (gameRef.current.selectedWordIds.length) {
+        params.set('selected_ids', gameRef.current.selectedWordIds.join(','));
+      }
+    }
     return params;
   }
 
