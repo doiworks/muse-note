@@ -55,6 +55,7 @@ function hasIdValue(value) {
 }
 
 const FILTER_COLUMNS = ['school_level', 'grade', 'term', 'exam_type', 'category1', 'category2', 'category3'];
+const SEARCH_BUCKETS = ['exact', 'prefix', 'contains'];
 
 function normalizeSearchValue(value) {
   return value ? value.normalize('NFKC').trim() : '';
@@ -69,7 +70,7 @@ function escapeLikePattern(value) {
   return value.replace(/[\\%_]/g, (match) => `\\${match}`);
 }
 
-function applySelectFilters(query, searchParams) {
+function applySelectFilters(query, searchParams, { skipSearch = false } = {}) {
   FILTER_COLUMNS.forEach((column) => {
     const value = searchParams.get(column);
     if (hasValue(value)) query = query.eq(column, value);
@@ -79,10 +80,17 @@ function applySelectFilters(query, searchParams) {
     query = query.eq('importance', 1);
   }
 
-  const searchText = normalizeSearchValue(searchParams.get('search'));
-  const searchColumn = detectSearchColumn(searchText);
-  if (searchColumn) {
-    query = query.ilike(searchColumn, `%${escapeLikePattern(searchText)}%`);
+  const selectedIds = parseIds(searchParams.get('selected_ids'));
+  if (searchParams.get('selectedOnly') === '1') {
+    query = selectedIds.length ? query.in('id', selectedIds) : query.in('id', [-1]);
+  }
+
+  if (!skipSearch) {
+    const searchText = normalizeSearchValue(searchParams.get('search'));
+    const searchColumn = detectSearchColumn(searchText);
+    if (searchColumn) {
+      query = query.ilike(searchColumn, `%${escapeLikePattern(searchText)}%`);
+    }
   }
 
   return query;
@@ -127,10 +135,116 @@ async function fetchSelectWordsByIds(supabaseAdmin, ids) {
   return { data: [...(data ?? [])].sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0)), error: null };
 }
 
+function applySearchBucket(query, column, escapedSearchText, bucket) {
+  if (bucket === 'exact') {
+    return query.ilike(column, escapedSearchText);
+  }
+  if (bucket === 'prefix') {
+    return query.ilike(column, `${escapedSearchText}%`).not(column, 'ilike', escapedSearchText);
+  }
+  return query
+    .ilike(column, `%${escapedSearchText}%`)
+    .not(column, 'ilike', `${escapedSearchText}%`);
+}
+
+async function fetchSelectBucket(supabaseAdmin, searchParams, { columns, offset, limit, searchColumn, escapedSearchText, bucket, withRows }) {
+  let query = supabaseAdmin
+    .from('words')
+    .select(columns, { count: 'exact', head: !withRows });
+
+  query = applySelectFilters(query, searchParams, { skipSearch: true });
+  query = applySearchBucket(query, searchColumn, escapedSearchText, bucket).order('id', { ascending: true });
+  if (withRows) query = query.range(offset, offset + limit - 1);
+
+  const { data, error, count } = await query;
+  return { data: data ?? [], error, count: count ?? 0 };
+}
+
+async function fetchRankedSelectWords(supabaseAdmin, searchParams, { columns, fetchAllIds }) {
+  const offset = parseOffset(searchParams.get('offset'));
+  const limit = parseLimit(searchParams.get('limit'));
+  const searchText = normalizeSearchValue(searchParams.get('search'));
+  const searchColumn = detectSearchColumn(searchText);
+  const escapedSearchText = escapeLikePattern(searchText);
+  const bucketCounts = [];
+
+  for (const bucket of SEARCH_BUCKETS) {
+    const result = await fetchSelectBucket(supabaseAdmin, searchParams, {
+      columns,
+      offset: 0,
+      limit: 1,
+      searchColumn,
+      escapedSearchText,
+      bucket,
+      withRows: false
+    });
+    if (result.error) return { data: null, error: result.error };
+    bucketCounts.push({ bucket, count: result.count });
+  }
+
+  const total = bucketCounts.reduce((sum, item) => sum + item.count, 0);
+  if (fetchAllIds) {
+    const allRows = [];
+    for (const { bucket, count } of bucketCounts) {
+      if (!count) continue;
+      const result = await fetchSelectBucket(supabaseAdmin, searchParams, {
+        columns,
+        offset: 0,
+        limit: count,
+        searchColumn,
+        escapedSearchText,
+        bucket,
+        withRows: true
+      });
+      if (result.error) return { data: null, error: result.error };
+      allRows.push(...result.data);
+    }
+    return { data: allRows, error: null, total, hasMore: false, nextCursor: null };
+  }
+
+  const rows = [];
+  let remainingOffset = offset;
+  let remainingLimit = limit;
+
+  for (const { bucket, count } of bucketCounts) {
+    if (remainingLimit <= 0) break;
+    if (remainingOffset >= count) {
+      remainingOffset -= count;
+      continue;
+    }
+    const take = Math.min(remainingLimit, count - remainingOffset);
+    const result = await fetchSelectBucket(supabaseAdmin, searchParams, {
+      columns,
+      offset: remainingOffset,
+      limit: take,
+      searchColumn,
+      escapedSearchText,
+      bucket,
+      withRows: true
+    });
+    if (result.error) return { data: null, error: result.error };
+    rows.push(...result.data);
+    remainingLimit -= result.data.length;
+    remainingOffset = 0;
+  }
+
+  return {
+    data: rows,
+    error: null,
+    total,
+    hasMore: offset + rows.length < total,
+    nextCursor: offset + rows.length < total ? offset + rows.length : null
+  };
+}
+
 async function fetchSelectWords(supabaseAdmin, searchParams, { columns = WORD_COLUMNS, fetchAllIds = false } = {}) {
   const offset = parseOffset(searchParams.get('offset'));
   const limit = parseLimit(searchParams.get('limit'));
   const searchText = normalizeSearchValue(searchParams.get('search'));
+  if (detectSearchColumn(searchText)) {
+    return fetchRankedSelectWords(supabaseAdmin, searchParams, { columns, fetchAllIds });
+  }
+
   let query = supabaseAdmin
     .from('words')
     .select(columns, { count: 'exact' });
@@ -142,13 +256,13 @@ async function fetchSelectWords(supabaseAdmin, searchParams, { columns = WORD_CO
   const { data, error, count } = await query;
   if (error) return { data: null, error };
 
-  const sorted = sortSelectWords(data ?? [], searchText);
+  const rows = data ?? [];
   return {
-    data: sorted,
+    data: rows,
     error: null,
-    total: count ?? sorted.length,
-    hasMore: !fetchAllIds && offset + sorted.length < (count ?? 0),
-    nextCursor: !fetchAllIds && offset + sorted.length < (count ?? 0) ? offset + sorted.length : null
+    total: count ?? rows.length,
+    hasMore: !fetchAllIds && offset + rows.length < (count ?? 0),
+    nextCursor: !fetchAllIds && offset + rows.length < (count ?? 0) ? offset + rows.length : null
   };
 }
 
