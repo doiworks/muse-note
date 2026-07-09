@@ -54,6 +54,10 @@ function hasIdValue(value) {
   return value !== null && value !== undefined;
 }
 
+function hasValue(value) {
+  return value !== null && value !== undefined && String(value).trim() !== '';
+}
+
 const FILTER_COLUMNS = ['school_level', 'grade', 'term', 'exam_type', 'category1', 'category2', 'category3'];
 const SEARCH_BUCKETS = ['exact', 'prefix', 'contains'];
 
