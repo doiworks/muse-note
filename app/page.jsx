@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 const MODE_TIMING = {
@@ -37,6 +37,7 @@ const QUESTION_MODE_OPTIONS = [
 ];
 const MIN_CANDIDATE_FETCH = 50;
 const MAX_FETCH_LIMIT = 500;
+const WORD_PICKER_PAGE_SIZE = 20;
 
 const INITIAL_GAME = {
   screen: 'intro',
@@ -73,6 +74,14 @@ const INITIAL_GAME = {
   pendingWordSetIds: [],
   wordSearchDraft: '',
   wordSearch: '',
+  v2Words: [],
+  v2Search: '',
+  v2SearchDraft: '',
+  v2NextCursor: '0',
+  v2HasMore: false,
+  v2Loading: false,
+  v2LoadingMore: false,
+  v2Error: '',
   filters: {
     school_level: '',
     grade: '',
@@ -650,15 +659,7 @@ export default function HomePage() {
       return next;
     });
     if (questionMode !== 'select') return;
-    try {
-      const words = gameRef.current.selectableWordsFullyLoaded
-        ? gameRef.current.selectableWords
-        : await fetchAllSelectableWords();
-      setGame((prev) => ({ ...prev, selectableWords: words, selectableWordsFullyLoaded: true, isLoading: false }));
-    } catch (error) {
-      setGame((prev) => ({ ...prev, isLoading: false, errorMessage: error.message }));
-      return;
-    }
+    setGame((prev) => ({ ...prev, isLoading: false }));
     try {
       const sets = await fetchWordSets();
       setGame((prev) => ({ ...prev, wordSets: sets, wordSetFetchError: '' }));
@@ -672,6 +673,58 @@ export default function HomePage() {
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || '保存セットの取得に失敗しました。');
     return data.word_sets || [];
+  }
+
+
+  function buildWordPickerListUrl({ search = '', cursor = '0', limit = WORD_PICKER_PAGE_SIZE } = {}) {
+    const params = new URLSearchParams({ limit: String(limit), cursor: String(cursor) });
+    const trimmedSearch = search.trim();
+    if (trimmedSearch) params.set('search', trimmedSearch);
+    return `/api/word-picker/list?${params.toString()}`;
+  }
+
+  const loadV2Words = useCallback(async ({ reset = false, search = gameRef.current.v2Search } = {}) => {
+    const current = gameRef.current;
+    const cursor = reset ? '0' : current.v2NextCursor;
+    setGame((prev) => ({
+      ...prev,
+      v2Loading: reset,
+      v2LoadingMore: !reset,
+      v2Error: '',
+      ...(reset ? { v2Words: [], v2NextCursor: '0', v2HasMore: false } : {})
+    }));
+
+    try {
+      const response = await fetch(buildWordPickerListUrl({ search, cursor }), { cache: 'no-store' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || '単語一覧の取得に失敗しました。');
+      setGame((prev) => ({
+        ...prev,
+        v2Words: reset ? (data.words || []) : [...prev.v2Words, ...(data.words || [])],
+        v2NextCursor: data.next_cursor ?? '0',
+        v2HasMore: Boolean(data.has_more),
+        v2Loading: false,
+        v2LoadingMore: false,
+        v2Search: search,
+        v2Error: ''
+      }));
+    } catch (error) {
+      setGame((prev) => ({
+        ...prev,
+        v2Loading: false,
+        v2LoadingMore: false,
+        v2Error: error.message || '単語一覧の取得に失敗しました。'
+      }));
+    }
+  }, []);
+
+  async function fetchSelectedWordsByIds(wordIds) {
+    const ids = [...new Set(wordIds)].filter(hasValue);
+    if (!ids.length) return [];
+    const response = await fetch(`/api/words?ids=${encodeURIComponent(ids.join(','))}`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || '選択した単語の取得に失敗しました。');
+    return data.words || [];
   }
 
   async function handleStart(selectedWords = null, forcedQuestionMode = null) {
@@ -885,12 +938,9 @@ export default function HomePage() {
     const safeRequestedCount = Number.isFinite(requestedCount) && requestedCount > 0 ? Math.floor(requestedCount) : 0;
     setGame((prev) => ({ ...prev, isLoading: true, errorMessage: '' }));
     try {
-      const selectedSet = new Set(current.selectedWordIds);
-      const selectedWords = current.selectableWords.filter((word) => selectedSet.has(word.id));
-      const shouldRefetch = current.questionMode !== 'select';
       const words = current.questionMode === 'select'
-        ? selectedWords
-        : (shouldRefetch ? await fetchWords(safeRequestedCount, current.questionMode) : current.words);
+        ? (current.words.length ? current.words : await fetchSelectedWordsByIds(current.selectedWordIds))
+        : await fetchWords(safeRequestedCount, current.questionMode);
       console.time?.('prepareWords');
       const { quizWords, targetCount } = prepareWords(words, safeRequestedCount, current.questionMode);
       console.timeEnd?.('prepareWords');
@@ -1011,14 +1061,18 @@ export default function HomePage() {
     });
   }
 
-  function handleStartSelected() {
+  async function handleStartSelected() {
     if (!game.selectedWordIds.length) {
       setGame((prev) => ({ ...prev, errorMessage: '単語を1つ以上選択してください。' }));
       return;
     }
-    const selectedSet = new Set(game.selectedWordIds);
-    const selectedWords = game.selectableWords.filter((word) => selectedSet.has(word.id));
-    void handleStart(selectedWords, 'select');
+    setGame((prev) => ({ ...prev, isLoading: true, errorMessage: '' }));
+    try {
+      const selectedWords = await fetchSelectedWordsByIds(game.selectedWordIds);
+      await handleStart(selectedWords, 'select');
+    } catch (error) {
+      setGame((prev) => ({ ...prev, isLoading: false, errorMessage: error.message || '選択した単語の取得に失敗しました。' }));
+    }
   }
 
   async function handleSaveWordSet() {
@@ -1078,17 +1132,17 @@ export default function HomePage() {
 
 
   async function openWordPicker(initialPanel = '') {
+    const shouldLoadInitialWords = initialPanel !== 'open' && gameRef.current.v2Words.length === 0;
     setGame((prev) => ({
       ...prev,
       isWordPickerOpen: true,
       pickerPanel: initialPanel,
-      draftFilters: initialPanel === 'category' ? { ...prev.filters } : prev.draftFilters,
       pendingWordSetIds: initialPanel === 'open' ? [] : prev.pendingWordSetIds,
       wordSetSearch: initialPanel === 'open' ? '' : prev.wordSetSearch,
-      wordSearchDraft: prev.wordSearch,
       wordSetMessage: '',
       wordSetMessageType: ''
     }));
+    if (shouldLoadInitialWords) void loadV2Words({ reset: true, search: gameRef.current.v2Search });
     try {
       const sets = await fetchWordSets();
       setGame((prev) => ({ ...prev, wordSets: sets, wordSetFetchError: '' }));
@@ -1184,12 +1238,31 @@ export default function HomePage() {
   }
 
   function selectVisible(shouldSelect) {
-    const visibleIds = filteredWords.map((word) => word.id);
+    const visibleIds = gameRef.current.v2Words.map((word) => word.id);
     setGame((prev) => {
       const current = new Set(prev.selectedWordIds);
       visibleIds.forEach((id) => (shouldSelect ? current.add(id) : current.delete(id)));
       return { ...prev, selectedWordIds: [...current] };
     });
+  }
+
+  function applyV2WordSearch() {
+    const nextSearch = gameRef.current.v2SearchDraft;
+    void loadV2Words({ reset: true, search: nextSearch });
+  }
+
+  function handleV2WordSearchKeyDown(event) {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    applyV2WordSearch();
+  }
+
+  function handleV2ListScroll(event) {
+    const target = event.currentTarget;
+    const nearBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 240;
+    if (nearBottom && gameRef.current.v2HasMore && !gameRef.current.v2Loading && !gameRef.current.v2LoadingMore) {
+      void loadV2Words({ reset: false });
+    }
   }
 
 
@@ -1236,9 +1309,6 @@ export default function HomePage() {
                   <button type="button" className="openWordModalBtn" onClick={() => void openWordPicker('open')}>
                     保存済みセットから選ぶ
                   </button>
-                  <button type="button" className="openWordModalBtn fastPickerLink" onClick={() => router.push('/word-picker-v2')}>
-                    高速版データ選択を試す
-                  </button>
                 </div>
               </div>
             )}
@@ -1260,7 +1330,7 @@ export default function HomePage() {
               type="button"
               className="retryBtn primary"
               disabled={game.isLoading}
-              onClick={() => (game.questionMode === 'select' ? handleStartSelected() : handleStart())}
+              onClick={() => (game.questionMode === 'select' ? void handleStartSelected() : handleStart())}
             >
               {game.isLoading ? '読み込み中...' : '開始'}
             </button>
@@ -1437,23 +1507,20 @@ export default function HomePage() {
               <div className="pickerSearchRow simpleSearchRow">
                 <input
                   className="searchInput pickerSearchInput"
-                  placeholder="英語・日本語・発音・カテゴリで検索"
-                  value={game.wordSearchDraft}
-                  onChange={(event) => setGame((prev) => ({ ...prev, wordSearchDraft: event.target.value }))}
-                  onKeyDown={handleWordSearchKeyDown}
+                  placeholder="英語・日本語で検索"
+                  value={game.v2SearchDraft}
+                  onChange={(event) => setGame((prev) => ({ ...prev, v2SearchDraft: event.target.value }))}
+                  onKeyDown={handleV2WordSearchKeyDown}
                 />
-                <button type="button" className="pickerActionBtn primaryAction" onClick={applyWordSearch}>検索</button>
+                <button type="button" className="pickerActionBtn primaryAction" onClick={applyV2WordSearch}>検索</button>
               </div>
               <div className="pickerPrimaryActions" aria-label="単語選択操作">
-                <button type="button" className="pickerActionBtn" onClick={() => openPickerPanel('category')}>
-                  カテゴリ{activeFilterCount ? `（${activeFilterCount}）` : ''}
-                </button>
-                <button type="button" className="pickerActionBtn" onClick={() => selectVisible(true)}>すべて選択</button>
+                <button type="button" className="pickerActionBtn" onClick={() => selectVisible(true)}>表示中を選択</button>
                 <button type="button" className="pickerActionBtn" onClick={() => selectVisible(false)}>解除</button>
                 <button type="button" className="pickerActionBtn" onClick={() => openPickerPanel('save')}>保存</button>
                 <button type="button" className="pickerActionBtn" onClick={() => openPickerPanel('open')}>開く</button>
                 <span className="selectedInline">選択中：<strong>{selectedCount}</strong>語</span>
-                <span className="visibleCount">表示中：{filteredWords.length}語</span>
+                <span className="visibleCount">表示中：{game.v2Words.length}語</span>
               </div>
             </section>
             {!game.pickerPanel && game.wordSetMessage && <p className={`wordSetMessage floatingMessage ${game.wordSetMessageType === 'error' ? 'error' : 'success'}`}>{game.wordSetMessage}</p>}
@@ -1588,21 +1655,22 @@ export default function HomePage() {
 
             <section className="wordListPanel mainWordListPanel" aria-label="単語一覧">
               <div className="wordListHeader">
-                <h3>単語一覧</h3>
-                <span>{filteredWords.length}語</span>
+                <h3>単語一覧（高速版V2）</h3>
+                <span>{game.v2Words.length}語表示中</span>
               </div>
-              <div className="wordList inModal">
-                {game.isLoading ? (
+              <div className="wordList inModal" onScroll={handleV2ListScroll}>
+                {game.v2Loading && (
                   <div className="wordListEmpty">
-                    <p>単語一覧を読み込んでいます</p>
-                  </div>
-                ) : shouldShowWordListEmptyState && (
-                  <div className="wordListEmpty">
-                    <p>条件に合う単語がありません</p>
-                    <p>検索やカテゴリを少し減らしてください</p>
+                    <p>最初の20件を読み込んでいます</p>
                   </div>
                 )}
-                {!game.isLoading && filteredWords.map((word) => (
+                {!game.v2Loading && !game.v2Words.length && (
+                  <div className="wordListEmpty">
+                    <p>条件に合う単語がありません</p>
+                    <p>英語・日本語の検索語を少し減らしてください</p>
+                  </div>
+                )}
+                {game.v2Words.map((word) => (
                   <WordRow
                     key={word.id}
                     word={word}
@@ -1612,6 +1680,9 @@ export default function HomePage() {
                     onSpeak={speak}
                   />
                 ))}
+                {game.v2Error && <div className="wordListEmpty"><p>{game.v2Error}</p><button type="button" className="pickerActionBtn" onClick={() => void loadV2Words({ reset: game.v2Words.length === 0 })}>再試行</button></div>}
+                {game.v2LoadingMore && <div className="wordListEmpty"><p>次の単語を読み込んでいます</p></div>}
+                {game.v2HasMore && !game.v2LoadingMore && <button type="button" className="pickerActionBtn" onClick={() => void loadV2Words({ reset: false })}>さらに20件読み込む</button>}
               </div>
             </section>
 
