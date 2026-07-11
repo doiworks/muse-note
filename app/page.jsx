@@ -277,6 +277,7 @@ const WordRow = memo(function WordRow({ word, selected, isImportant, onToggle, o
           ))}
         </span>
       </span>
+      <span className="wordCheck" aria-hidden="true">{selected ? '✓' : ''}</span>
       <button
         className="wordSpeaker"
         onClick={handleSpeakerClick}
@@ -1772,15 +1773,8 @@ export default function HomePage() {
         <div className="wordPickerScreen" role="dialog" aria-modal="true" aria-label="単語を選ぶ">
           <div className="wordPickerShell">
             <header className="wordPickerHeader compactHeader">
-              <div>
-                <p className="wordPickerEyebrow">Selection mode</p>
-                <h2>単語一覧から選ぶ</h2>
-              </div>
-              <div className="pickerHeaderActions">
-                <span className="selectedCountStrong">選択中：{selectedCount}語</span>
-                <button type="button" className="retryBtn primary compact" onClick={() => setGame((prev) => ({ ...prev, isWordPickerOpen: false, pickerPanel: '' }))}>決定</button>
-                <button type="button" className="pickerCloseBtn" onClick={() => setGame((prev) => ({ ...prev, isWordPickerOpen: false, pickerPanel: '' }))}>閉じる</button>
-              </div>
+              <h2>単語を選ぶ</h2>
+              <button type="button" className="pickerCloseBtn" onClick={() => setGame((prev) => ({ ...prev, isWordPickerOpen: false, pickerPanel: '' }))}>閉じる</button>
             </header>
 
             <section className="pickerControlPanel simplePickerControls" aria-label="検索と操作">
@@ -1794,18 +1788,7 @@ export default function HomePage() {
                 />
                 <button type="button" className="pickerActionBtn primaryAction" onClick={applyV2WordSearch}>検索</button>
               </div>
-              <div className="pickerPrimaryActions" aria-label="単語選択操作">
-                <button type="button" className="pickerActionBtn" onClick={selectAllMatching}>条件内を全件選択</button>
-                <button type="button" className="pickerActionBtn" onClick={() => selectVisible(true)}>表示中を選択</button>
-                <button type="button" className="pickerActionBtn" onClick={clearSelection}>解除</button>
-                <button type="button" className="pickerActionBtn" onClick={() => openPickerPanel('category')}>カテゴリ{activeFilterCount ? `（${activeFilterCount}）` : ''}</button>
-                <button type="button" className="pickerActionBtn" onClick={() => openPickerPanel('save')}>保存</button>
-                <button type="button" className="pickerActionBtn" onClick={() => openPickerPanel('open')}>開く</button>
-                <span className="selectedInline">選択中：<strong>{selectedCount}</strong>語</span>
-                <span className="visibleCount">表示中：{game.v2Words.length}語{game.v2Total !== null ? ` / 全${game.v2Total}語` : ''}</span>
-                {game.v2CacheNotice && <span className="cacheNotice">{game.v2CacheNotice}</span>}
-              </div>
-              <div className="activeFilterChips" aria-label="現在のカテゴリ条件">
+              <div className="activeFilterChips" aria-label="現在の条件">
                 <span className="conditionLabel">条件：</span>
                 {getActiveFilterEntries(game.filters).length === 0 ? (
                   <span className="filterChip neutral">すべて</span>
@@ -1815,13 +1798,19 @@ export default function HomePage() {
                   </button>
                 ))}
               </div>
-              {game.selectionMode === 'allMatching' && (
-                <div className="allMatchingStatus" aria-live="polite">
-                  <strong>{game.v2Total === null ? '条件内を全件選択中' : `条件内を全件選択中：${game.v2Total}語`}</strong>
-                  <span>除外：{game.excludedWordIds.length}語</span>
-                  {game.v2Total !== null && <span>実際の選択：{Math.max(0, game.v2Total - game.excludedWordIds.length)}語</span>}
-                </div>
-              )}
+              <div className="pickerPrimaryActions" aria-label="単語選択操作">
+                <button type="button" className="pickerActionBtn" onClick={() => openPickerPanel('category')}>カテゴリ{activeFilterCount ? `（${activeFilterCount}）` : ''}</button>
+                <button type="button" className="pickerActionBtn" onClick={selectAllMatching}>条件内を全件選択</button>
+                <button type="button" className="pickerActionBtn" onClick={() => selectVisible(true)}>表示中を選択</button>
+                <button type="button" className="pickerActionBtn" onClick={clearSelection}>解除</button>
+                <button type="button" className="pickerActionBtn" onClick={() => openPickerPanel('save')}>保存</button>
+                <button type="button" className="pickerActionBtn" onClick={() => openPickerPanel('open')}>開く</button>
+              </div>
+              <div className="pickerResultCount" aria-live="polite">
+                <span>表示中{game.v2Words.length}語{game.v2Total !== null ? ` / 対象${game.v2Total}語` : ''}</span>
+                {game.selectionMode === 'allMatching' && <span>条件内を全件選択中（除外{game.excludedWordIds.length}語）</span>}
+                {game.v2CacheNotice && <span className="cacheNotice">{game.v2CacheNotice}</span>}
+              </div>
             </section>
             {!game.pickerPanel && game.wordSetMessage && <p className={`wordSetMessage floatingMessage ${game.wordSetMessageType === 'error' ? 'error' : 'success'}`}>{game.wordSetMessage}</p>}
 
@@ -1834,10 +1823,6 @@ export default function HomePage() {
                       <h3>カテゴリを選ぶ</h3>
                     </div>
                     <button type="button" className="panelCloseButton" onClick={closeWordPickerPanel}>閉じる</button>
-                  </div>
-                  <div className="panelCountRow" aria-live="polite">
-                    <span>選択中：<strong>{selectedCount}</strong>語</span>
-                    <span>表示中：<strong>{game.v2Words.length}</strong>語</span>
                   </div>
                   {game.categoryOptionsLoading && <p className="wordListHint">カテゴリ候補を読み込み中です...</p>}
                   {game.categoryOptionsError && <p className="wordSetMessage error">{game.categoryOptionsError}</p>}
@@ -1957,10 +1942,8 @@ export default function HomePage() {
 
             <section className="wordListPanel mainWordListPanel" aria-label="単語一覧">
               <div className="wordListHeader">
-                <h3>単語一覧（高速版V2）</h3>
-                <span>{game.v2Words.length}語表示中{game.v2Total !== null ? ` / 全${game.v2Total}語` : ''}</span>
+                <span>{game.v2Words.length}語表示中{game.v2Total !== null ? ` / 対象${game.v2Total}語` : ''}</span>
               </div>
-              {game.v2CacheNotice && <p className="cacheNotice underHeader">{game.v2CacheNotice}</p>}
               <div className="wordList inModal" onScroll={handleV2ListScroll}>
                 {game.v2Loading && (
                   <div className="wordListEmpty">
@@ -1968,9 +1951,10 @@ export default function HomePage() {
                   </div>
                 )}
                 {!game.v2Loading && !game.v2Words.length && (
-                  <div className="wordListEmpty">
+                  <div className="wordListEmpty compactEmpty">
                     <p>条件に合う単語がありません</p>
-                    <p>英語・日本語の検索語を少し減らしてください</p>
+                    <p>条件を減らすか、重要のみを解除してください</p>
+                    <button type="button" className="pickerActionBtn" onClick={clearFilters}>条件をクリア</button>
                   </div>
                 )}
                 {game.v2Words.map((word) => (
@@ -1988,14 +1972,6 @@ export default function HomePage() {
                 {game.v2HasMore && !game.v2LoadingMore && <button type="button" className="pickerActionBtn" onClick={() => void loadV2Words({ reset: false })}>さらに20件読み込む</button>}
               </div>
             </section>
-
-            <div className="pickerPerfPanel" aria-label="単語選択V2速度計測">
-              <span>表示元：{game.v2Metrics.source || game.v2Source || '-'}</span>
-              <span>キャッシュ表示：{game.v2Metrics.cacheMs === null ? '-' : `${game.v2Metrics.cacheMs}ms`}</span>
-              <span>API取得：{game.v2Metrics.apiMs === null || game.v2Metrics.apiMs === undefined ? '-' : `${game.v2Metrics.apiMs}ms`}</span>
-              <span>描画：{game.v2Metrics.renderMs === null ? '-' : `${game.v2Metrics.renderMs}ms`}</span>
-              {game.v2Metrics.slow && <strong>遅延：{game.v2Metrics.slow}</strong>}
-            </div>
 
             <div className="pickerBottomBar">
               <span>選択中：<strong>{selectedCount}</strong>語</span>
@@ -3394,6 +3370,91 @@ export default function HomePage() {
           stroke-linejoin: round;
         }
 
+
+        /* Word picker V2 simplified selectable layout */
+        .wordPickerShell {
+          grid-template-rows: auto auto minmax(0, 1fr) auto;
+        }
+        .compactHeader {
+          padding: 4px 2px 0;
+        }
+        .pickerPrimaryActions {
+          display: grid;
+          grid-template-columns: repeat(6, minmax(0, 1fr));
+          gap: 8px;
+        }
+        .pickerPrimaryActions .pickerActionBtn {
+          width: 100%;
+        }
+        .pickerResultCount {
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 8px;
+          color: #607a9e;
+          font-size: 0.85rem;
+          font-weight: 800;
+        }
+        .wordListHeader {
+          justify-content: flex-end;
+          font-size: 0.84rem;
+          font-weight: 800;
+        }
+        .wordRowItem {
+          grid-template-columns: 7px minmax(120px, 1fr) minmax(140px, 0.56fr) 26px 34px;
+          min-height: 50px;
+          padding: 6px 8px 6px 0;
+        }
+        .wordPrimaryInfo {
+          flex-wrap: wrap;
+          gap: 2px 8px;
+          line-height: 1.2;
+        }
+        .wordEnglish::after {
+          content: ' /';
+          color: #9aaec8;
+          font-weight: 700;
+        }
+        .wordPhonetic {
+          flex-basis: 100%;
+          font-size: 0.72rem;
+        }
+        .wordMetaInfo {
+          grid-template-rows: 18px;
+        }
+        .wordMetaInfo .wordTagLine:nth-child(2) {
+          display: none;
+        }
+        .wordCheck {
+          width: 24px;
+          height: 24px;
+          border: 2px solid #b8cce6;
+          border-radius: 8px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          color: #ffffff;
+          background: #ffffff;
+          font-size: 0.95rem;
+          font-weight: 900;
+          line-height: 1;
+        }
+        .wordRowItem.selected .wordCheck {
+          border-color: #2584d9;
+          background: linear-gradient(180deg, #48a2ed 0%, #2584d9 100%);
+          box-shadow: 0 4px 10px rgba(37, 132, 217, 0.28);
+        }
+        .pickerBottomBar {
+          position: sticky;
+          bottom: 0;
+          z-index: 3;
+        }
+        .compactEmpty {
+          min-height: auto;
+          padding: 18px 12px;
+          gap: 8px;
+        }
+
         @media (max-width: 780px) {
           .pickerHeaderActions {
             justify-content: flex-end;
@@ -3408,11 +3469,6 @@ export default function HomePage() {
           .pickerActionBtn {
             padding: 0.58em 0.45em;
             font-size: 0.82rem;
-          }
-          .selectedInline,
-          .visibleCount {
-            grid-column: span 3;
-            margin-left: 0;
           }
           .wordPickerScreen {
             padding: 8px;
@@ -3480,9 +3536,9 @@ export default function HomePage() {
             padding: 6px;
           }
           .wordRowItem {
-            grid-template-columns: 7px minmax(96px, 1fr) minmax(84px, 0.78fr) 30px;
+            grid-template-columns: 7px minmax(0, 1fr) 24px 30px;
             gap: 5px;
-            min-height: 52px;
+            min-height: 50px;
             padding: 6px 6px 6px 0;
             border-radius: 11px;
           }
@@ -3525,9 +3581,7 @@ export default function HomePage() {
             gap: 5px;
           }
           .wordMetaInfo {
-            grid-template-rows: repeat(2, 16px);
-            gap: 1px;
-            padding-left: 6px;
+            display: none;
           }
           .wordTagLine {
             gap: 3px;
