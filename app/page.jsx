@@ -38,6 +38,8 @@ const QUESTION_MODE_OPTIONS = [
 const MIN_CANDIDATE_FETCH = 50;
 const MAX_FETCH_LIMIT = 500;
 const WORD_PICKER_PAGE_SIZE = 20;
+const WORD_PICKER_PREFETCH_SIZE = 30;
+const WORD_PICKER_CACHE_KEY = 'muse-note:word-picker-v2:first-page';
 
 const INITIAL_GAME = {
   screen: 'intro',
@@ -82,6 +84,10 @@ const INITIAL_GAME = {
   v2Loading: false,
   v2LoadingMore: false,
   v2Error: '',
+  v2Source: '',
+  v2CacheNotice: '',
+  v2Metrics: { source: '-', cacheMs: null, apiMs: null, renderMs: null, slow: '' },
+  v2Total: null,
   filters: {
     school_level: '',
     grade: '',
@@ -295,6 +301,8 @@ export default function HomePage() {
   const voicesRef = useRef([]);
   const gameRef = useRef(INITIAL_GAME);
   const audioContextRef = useRef(null);
+  const v2PrefetchRef = useRef({ key: '', promise: null, data: null });
+  const v2OpenStartedAtRef = useRef(0);
   const currentWord = game.quizWords[game.currentIndex] || null;
   const totalElapsed = game.now && game.totalStart ? game.now - game.totalStart : 0;
   const questionElapsed = game.now && game.questionStart ? game.now - game.questionStart : 0;
@@ -619,33 +627,6 @@ export default function HomePage() {
     }
   }
 
-  async function fetchAllSelectableWords() {
-    console.time?.('fetchAllSelectableWords');
-    try {
-      const allWords = [];
-      let offset = 0;
-      let hasMore = true;
-
-      while (hasMore) {
-        const query = `?limit=${MAX_FETCH_LIMIT}&offset=${offset}&mode=select`;
-        const response = await fetch(`/api/words${query}`);
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(data.error || '単語データの取得に失敗しました。時間をおいて再度お試しください。');
-        }
-
-        const words = data.words || [];
-        allWords.push(...words);
-        hasMore = Boolean(data.has_more);
-        offset += MAX_FETCH_LIMIT;
-      }
-
-      return allWords;
-    } finally {
-      console.timeEnd?.('fetchAllSelectableWords');
-    }
-  }
-
   async function handleQuestionModeChange(questionMode) {
     setGame((prev) => {
       const next = {
@@ -653,19 +634,13 @@ export default function HomePage() {
         questionMode,
         errorMessage: '',
         wrongModeFallbackAvailable: false,
-        isLoading: questionMode === 'select' && !prev.selectableWordsFullyLoaded
+        isLoading: false
       };
       gameRef.current = next;
       return next;
     });
     if (questionMode !== 'select') return;
-    setGame((prev) => ({ ...prev, isLoading: false }));
-    try {
-      const sets = await fetchWordSets();
-      setGame((prev) => ({ ...prev, wordSets: sets, wordSetFetchError: '' }));
-    } catch (error) {
-      setGame((prev) => ({ ...prev, wordSetFetchError: error.message || '保存済みセットを読み込めませんでした。' }));
-    }
+    void prefetchV2FirstPage();
   }
 
   async function fetchWordSets() {
@@ -683,21 +658,150 @@ export default function HomePage() {
     return `/api/word-picker/list?${params.toString()}`;
   }
 
-  const loadV2Words = useCallback(async ({ reset = false, search = gameRef.current.v2Search } = {}) => {
+
+
+  function readV2Cache() {
+    if (typeof window === 'undefined') return null;
+    try {
+      const cached = JSON.parse(window.localStorage.getItem(WORD_PICKER_CACHE_KEY) || 'null');
+      return Array.isArray(cached?.words) ? cached : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function writeV2Cache(data) {
+    if (typeof window === 'undefined' || !Array.isArray(data?.words)) return;
+    try {
+      window.localStorage.setItem(WORD_PICKER_CACHE_KEY, JSON.stringify({ ...data, savedAt: Date.now() }));
+    } catch {
+      // Cache is only an acceleration path; ignore quota/private-mode failures.
+    }
+  }
+
+  async function fetchV2Page({ search = '', cursor = '0', limit = WORD_PICKER_PAGE_SIZE } = {}) {
+    const startedAt = performance.now();
+    const response = await fetch(buildWordPickerListUrl({ search, cursor, limit }), { cache: 'no-store' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || '単語一覧の取得に失敗しました。');
+    return { data, elapsed: Math.round(performance.now() - startedAt) };
+  }
+
+  function measureV2Render(startedAt) {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const renderMs = Math.round(performance.now() - startedAt);
+        setGame((prev) => ({ ...prev, v2Metrics: { ...prev.v2Metrics, renderMs } }));
+      });
+    });
+  }
+
+  function updateV2Metrics(patch) {
+    setGame((prev) => {
+      const metrics = { ...prev.v2Metrics, ...patch };
+      const slowParts = [];
+      if ((metrics.apiMs ?? 0) >= 3000) slowParts.push(`API ${metrics.apiMs}ms`);
+      if ((metrics.cacheMs ?? 0) >= 3000) slowParts.push(`cache ${metrics.cacheMs}ms`);
+      if ((metrics.renderMs ?? 0) >= 3000) slowParts.push(`render ${metrics.renderMs}ms`);
+      return { ...prev, v2Metrics: { ...metrics, slow: slowParts.join(' / ') } };
+    });
+  }
+
+  function prefetchV2FirstPage() {
+    const key = 'first:';
+    if (v2PrefetchRef.current.key === key && (v2PrefetchRef.current.promise || v2PrefetchRef.current.data)) {
+      return v2PrefetchRef.current.promise;
+    }
+    const promise = fetchV2Page({ search: '', cursor: '0', limit: WORD_PICKER_PAGE_SIZE })
+      .then(({ data, elapsed }) => {
+        v2PrefetchRef.current = { key, promise: null, data };
+        writeV2Cache(data);
+        updateV2Metrics({ apiMs: elapsed });
+        void prefetchV2NextPage(data.next_cursor ?? String(WORD_PICKER_PAGE_SIZE));
+        return data;
+      })
+      .catch((error) => {
+        v2PrefetchRef.current = { key: '', promise: null, data: null };
+        throw error;
+      });
+    v2PrefetchRef.current = { key, promise, data: null };
+    return promise;
+  }
+
+  async function prefetchV2NextPage(cursor) {
+    if (!cursor) return;
+    try {
+      await fetchV2Page({ search: gameRef.current.v2Search, cursor, limit: WORD_PICKER_PREFETCH_SIZE });
+    } catch (error) {
+      console.warn('Word picker next-page prefetch failed:', error);
+    }
+  }
+
+  async function fetchV2TotalInBackground(search = '') {
+    try {
+      const params = new URLSearchParams({ limit: '1', cursor: '0' });
+      if (search.trim()) params.set('search', search.trim());
+      const response = await fetch(`/api/word-picker/count?${params.toString()}`, { cache: 'no-store' });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) setGame((prev) => ({ ...prev, v2Total: data.total ?? data.count ?? null }));
+    } catch (error) {
+      console.warn('Word picker count fetch failed:', error);
+    }
+  }
+
+  const loadV2Words = useCallback(async ({ reset = false, search = gameRef.current.v2Search, preferCache = false } = {}) => {
     const current = gameRef.current;
     const cursor = reset ? '0' : current.v2NextCursor;
-    setGame((prev) => ({
-      ...prev,
-      v2Loading: reset,
-      v2LoadingMore: !reset,
-      v2Error: '',
-      ...(reset ? { v2Words: [], v2NextCursor: '0', v2HasMore: false } : {})
-    }));
+    const isFirstPage = reset && cursor === '0' && !search.trim();
+    const renderStartedAt = performance.now();
+    let showedInstantData = false;
+
+    if (reset) {
+      const cached = preferCache && isFirstPage ? readV2Cache() : null;
+      const prefetched = isFirstPage ? v2PrefetchRef.current.data : null;
+      const instant = prefetched || cached;
+      if (instant?.words?.length) {
+        const cacheMs = Math.round(performance.now() - (v2OpenStartedAtRef.current || renderStartedAt));
+        showedInstantData = true;
+        setGame((prev) => ({
+          ...prev,
+          v2Words: instant.words || [],
+          v2NextCursor: instant.next_cursor ?? String((instant.words || []).length),
+          v2HasMore: Boolean(instant.has_more),
+          v2Loading: false,
+          v2LoadingMore: false,
+          v2Search: search,
+          v2Error: '',
+          v2Source: prefetched ? 'prefetch' : 'cache',
+          v2CacheNotice: cached && !prefetched ? '前回データを表示中・更新確認中' : '',
+          v2Metrics: { source: prefetched ? 'prefetch' : 'cache', cacheMs, apiMs: null, renderMs: null, slow: '' }
+        }));
+        measureV2Render(renderStartedAt);
+      } else {
+        setGame((prev) => ({
+          ...prev,
+          v2Words: [],
+          v2NextCursor: '0',
+          v2HasMore: false,
+          v2Loading: true,
+          v2LoadingMore: false,
+          v2Search: search,
+          v2Error: '',
+          v2Source: '',
+          v2CacheNotice: '',
+          v2Metrics: { source: 'api', cacheMs: null, apiMs: null, renderMs: null, slow: '' }
+        }));
+      }
+    } else {
+      setGame((prev) => ({ ...prev, v2LoadingMore: true, v2Error: '' }));
+    }
 
     try {
-      const response = await fetch(buildWordPickerListUrl({ search, cursor }), { cache: 'no-store' });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || '単語一覧の取得に失敗しました。');
+      const inFlightFirstPage = isFirstPage && v2PrefetchRef.current.promise;
+      const { data, elapsed } = inFlightFirstPage
+        ? { data: await v2PrefetchRef.current.promise, elapsed: null }
+        : await fetchV2Page({ search, cursor, limit: WORD_PICKER_PAGE_SIZE });
+      if (isFirstPage) writeV2Cache(data);
       setGame((prev) => ({
         ...prev,
         v2Words: reset ? (data.words || []) : [...prev.v2Words, ...(data.words || [])],
@@ -706,14 +810,24 @@ export default function HomePage() {
         v2Loading: false,
         v2LoadingMore: false,
         v2Search: search,
-        v2Error: ''
+        v2Error: '',
+        v2Source: 'api',
+        v2CacheNotice: '',
+        v2Metrics: { ...prev.v2Metrics, source: 'api', apiMs: elapsed ?? prev.v2Metrics.apiMs }
       }));
+      measureV2Render(renderStartedAt);
+      updateV2Metrics(elapsed === null ? { source: 'api' } : { source: 'api', apiMs: elapsed });
+      if (reset) {
+        void fetchV2TotalInBackground(search);
+        void prefetchV2NextPage(data.next_cursor ?? String(WORD_PICKER_PAGE_SIZE));
+      }
     } catch (error) {
       setGame((prev) => ({
         ...prev,
         v2Loading: false,
         v2LoadingMore: false,
-        v2Error: error.message || '単語一覧の取得に失敗しました。'
+        v2Error: showedInstantData ? '' : (error.message || '単語一覧の取得に失敗しました。'),
+        v2CacheNotice: showedInstantData ? '前回データを表示中・更新確認に失敗しました' : prev.v2CacheNotice
       }));
     }
   }, []);
@@ -1132,7 +1246,8 @@ export default function HomePage() {
 
 
   async function openWordPicker(initialPanel = '') {
-    const shouldLoadInitialWords = initialPanel !== 'open' && gameRef.current.v2Words.length === 0;
+    v2OpenStartedAtRef.current = performance.now();
+    const shouldLoadInitialWords = initialPanel !== 'open';
     setGame((prev) => ({
       ...prev,
       isWordPickerOpen: true,
@@ -1142,7 +1257,11 @@ export default function HomePage() {
       wordSetMessage: '',
       wordSetMessageType: ''
     }));
-    if (shouldLoadInitialWords) void loadV2Words({ reset: true, search: gameRef.current.v2Search });
+    if (shouldLoadInitialWords) void loadV2Words({ reset: true, search: '', preferCache: true });
+    if (initialPanel === 'open') void loadWordSetsForPanel();
+  }
+
+  async function loadWordSetsForPanel() {
     try {
       const sets = await fetchWordSets();
       setGame((prev) => ({ ...prev, wordSets: sets, wordSetFetchError: '' }));
@@ -1152,6 +1271,7 @@ export default function HomePage() {
   }
 
   function openPickerPanel(panel) {
+    if (panel === 'open' && !gameRef.current.wordSets.length) void loadWordSetsForPanel();
     setGame((prev) => ({
       ...prev,
       pickerPanel: prev.pickerPanel === panel ? '' : panel,
@@ -1248,7 +1368,7 @@ export default function HomePage() {
 
   function applyV2WordSearch() {
     const nextSearch = gameRef.current.v2SearchDraft;
-    void loadV2Words({ reset: true, search: nextSearch });
+    void loadV2Words({ reset: true, search: nextSearch, preferCache: false });
   }
 
   function handleV2WordSearchKeyDown(event) {
@@ -1520,7 +1640,8 @@ export default function HomePage() {
                 <button type="button" className="pickerActionBtn" onClick={() => openPickerPanel('save')}>保存</button>
                 <button type="button" className="pickerActionBtn" onClick={() => openPickerPanel('open')}>開く</button>
                 <span className="selectedInline">選択中：<strong>{selectedCount}</strong>語</span>
-                <span className="visibleCount">表示中：{game.v2Words.length}語</span>
+                <span className="visibleCount">表示中：{game.v2Words.length}語{game.v2Total !== null ? ` / 全${game.v2Total}語` : ''}</span>
+                {game.v2CacheNotice && <span className="cacheNotice">{game.v2CacheNotice}</span>}
               </div>
             </section>
             {!game.pickerPanel && game.wordSetMessage && <p className={`wordSetMessage floatingMessage ${game.wordSetMessageType === 'error' ? 'error' : 'success'}`}>{game.wordSetMessage}</p>}
@@ -1656,8 +1777,9 @@ export default function HomePage() {
             <section className="wordListPanel mainWordListPanel" aria-label="単語一覧">
               <div className="wordListHeader">
                 <h3>単語一覧（高速版V2）</h3>
-                <span>{game.v2Words.length}語表示中</span>
+                <span>{game.v2Words.length}語表示中{game.v2Total !== null ? ` / 全${game.v2Total}語` : ''}</span>
               </div>
+              {game.v2CacheNotice && <p className="cacheNotice underHeader">{game.v2CacheNotice}</p>}
               <div className="wordList inModal" onScroll={handleV2ListScroll}>
                 {game.v2Loading && (
                   <div className="wordListEmpty">
@@ -1685,6 +1807,14 @@ export default function HomePage() {
                 {game.v2HasMore && !game.v2LoadingMore && <button type="button" className="pickerActionBtn" onClick={() => void loadV2Words({ reset: false })}>さらに20件読み込む</button>}
               </div>
             </section>
+
+            <div className="pickerPerfPanel" aria-label="単語選択V2速度計測">
+              <span>表示元：{game.v2Metrics.source || game.v2Source || '-'}</span>
+              <span>キャッシュ表示：{game.v2Metrics.cacheMs === null ? '-' : `${game.v2Metrics.cacheMs}ms`}</span>
+              <span>API取得：{game.v2Metrics.apiMs === null || game.v2Metrics.apiMs === undefined ? '-' : `${game.v2Metrics.apiMs}ms`}</span>
+              <span>描画：{game.v2Metrics.renderMs === null ? '-' : `${game.v2Metrics.renderMs}ms`}</span>
+              {game.v2Metrics.slow && <strong>遅延：{game.v2Metrics.slow}</strong>}
+            </div>
 
             <div className="pickerBottomBar">
               <span>選択中：<strong>{selectedCount}</strong>語</span>
@@ -2643,6 +2773,45 @@ export default function HomePage() {
           border-color: #8fc0ef;
           color: #27649d;
         }
+        .cacheNotice {
+          color: #8a6d1d;
+          font-size: 0.78rem;
+          background: #fff7d6;
+          border: 1px solid #f3df97;
+          border-radius: 999px;
+          padding: 4px 8px;
+        }
+
+        .cacheNotice.underHeader {
+          display: inline-block;
+          margin: 0 0 8px;
+        }
+
+        .pickerPerfPanel {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px 10px;
+          align-items: center;
+          justify-content: center;
+          margin: 8px 0 10px;
+          color: #6b7890;
+          font-size: 0.72rem;
+        }
+
+        .pickerPerfPanel span,
+        .pickerPerfPanel strong {
+          border: 1px solid #dbe6f7;
+          border-radius: 999px;
+          background: #f8fbff;
+          padding: 3px 7px;
+        }
+
+        .pickerPerfPanel strong {
+          color: #b42318;
+          background: #fff1f0;
+          border-color: #ffccc7;
+        }
+
         .selectedInline {
           margin-left: auto;
           color: #315d91;
