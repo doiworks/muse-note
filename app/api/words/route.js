@@ -60,6 +60,26 @@ function hasIdValue(value) {
   return value !== null && value !== undefined;
 }
 
+function parseWordIds(value) {
+  return [...new Set(String(value || '')
+    .split(',')
+    .map((item) => Number(item.trim()))
+    .filter(Number.isFinite))];
+}
+
+async function fetchWordsByIds(supabaseAdmin, wordIds) {
+  if (!wordIds.length) return { data: [], error: null };
+
+  const { data, error } = await supabaseAdmin
+    .from('words')
+    .select(WORD_COLUMNS)
+    .in('id', wordIds);
+
+  if (error) return { data: null, error };
+  const order = new Map(wordIds.map((id, index) => [id, index]));
+  return { data: [...(data ?? [])].sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0)), error: null };
+}
+
 function rankWordForBalancedOrder(word) {
   const attemptCount = Number(word?.stats?.attempt_count ?? 0);
   const lastAnsweredAtText = word?.last_answered_at;
@@ -211,6 +231,22 @@ export async function GET(request) {
     const searchParams = new URL(request.url).searchParams;
     const limit = parseLimit(searchParams.get('limit'));
     const offset = parseOffset(searchParams.get('offset'));
+    const idsParam = searchParams.get('ids');
+    if (idsParam) {
+      const wordIds = parseWordIds(idsParam);
+      const { data: wordRows, error } = await fetchWordsByIds(supabaseAdmin, wordIds);
+      if (error) {
+        console.error('Failed to fetch selected words with service role client:', error);
+        return createErrorResponse(WORD_FETCH_ERROR_MESSAGE, 500);
+      }
+      const { data: statsRows, error: statsError } = await fetchStatsForWordIds(supabaseAdmin, wordIds);
+      if (statsError) {
+        console.error('Failed to fetch selected word stats with service role client:', statsError);
+        return createErrorResponse(WORD_FETCH_ERROR_MESSAGE, 500);
+      }
+      return NextResponse.json({ words: attachStatsToWords(wordRows ?? [], statsRows ?? []), has_more: false });
+    }
+
     const modeParam = String(searchParams.get('mode') || WORD_MODE.BALANCED).toLowerCase();
     const isWrongMode = modeParam === WORD_MODE.WRONG || modeParam === 'review';
     const isSelectMode = modeParam === WORD_MODE.SELECT;
