@@ -1236,6 +1236,9 @@ export default function HomePage() {
                   <button type="button" className="openWordModalBtn" onClick={() => void openWordPicker('open')}>
                     保存済みセットから選ぶ
                   </button>
+                  <button type="button" className="openWordModalBtn fastPickerLink" onClick={() => router.push('/word-picker-v2')}>
+                    高速版データ選択を試す
+                  </button>
                 </div>
               </div>
             )}
