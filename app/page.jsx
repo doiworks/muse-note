@@ -52,6 +52,9 @@ const INITIAL_GAME = {
   selectableWords: [],
   selectableWordsFullyLoaded: false,
   selectedWordIds: [],
+  selectionMode: 'manual',
+  selectionQuery: {},
+  excludedWordIds: [],
   wordSets: [],
   selectedWordSetId: '',
   selectedWordSetName: '',
@@ -146,6 +149,23 @@ function matchesWordFilters(word, filters, selectedWordIdSet) {
   );
 }
 
+
+function getActiveFilterEntries(filters = {}) {
+  return FILTER_KEYS
+    .filter((key) => hasValue(filters[key]))
+    .map((key) => ({ key, label: FILTER_LABELS[key] || key, value: filters[key] }))
+    .concat(filters.importantOnly ? [{ key: 'importantOnly', label: '重要', value: '重要のみ' }] : []);
+}
+
+function createSelectionQuery(search = '', filters = {}) {
+  const query = { search: String(search || '').trim() };
+  FILTER_KEYS.forEach((key) => {
+    if (hasValue(filters[key])) query[key] = filters[key];
+  });
+  query.importantOnly = Boolean(filters.importantOnly);
+  return query;
+}
+
 function shuffleLocal(items) {
   const shuffled = [...items];
   for (let i = shuffled.length - 1; i > 0; i -= 1) {
@@ -185,6 +205,15 @@ function DiffText({ answer, correct }) {
 }
 
 const FILTER_KEYS = ['school_level', 'grade', 'term', 'exam_type', 'category1', 'category2', 'category3'];
+const FILTER_LABELS = {
+  school_level: '学校種',
+  grade: '学年',
+  term: '学期',
+  exam_type: 'テスト',
+  category1: 'カテゴリ1',
+  category2: 'カテゴリ2',
+  category3: 'カテゴリ3'
+};
 
 const WordRow = memo(function WordRow({ word, selected, isImportant, onToggle, onSpeak }) {
   const stats = word.stats;
@@ -312,6 +341,7 @@ export default function HomePage() {
   const questionElapsed = game.now && game.questionStart ? game.now - game.questionStart : 0;
   const accuracy = game.answeredCount ? Math.round((game.correctCount / game.answeredCount) * 100) : 0;
   const selectedWordIdSet = useMemo(() => new Set(game.selectedWordIds), [game.selectedWordIds]);
+  const excludedWordIdSet = useMemo(() => new Set(game.excludedWordIds), [game.excludedWordIds]);
   const normalizedWordSearch = useMemo(() => normalizeText(game.wordSearch), [game.wordSearch]);
   const keywordMatchedWords = useMemo(() => game.selectableWords.filter((word) => (
     !normalizedWordSearch ||
@@ -324,9 +354,11 @@ export default function HomePage() {
     matchesWordFilters(word, game.filters, selectedWordIdSet)
   )), [keywordMatchedWords, game.filters, selectedWordIdSet]);
 
-  const selectedCount = game.selectedWordIds.length;
+  const activeFilterCount = useMemo(() => getActiveFilterEntries(game.filters).length, [game.filters]);
+  const selectedCount = game.selectionMode === 'allMatching'
+    ? (game.v2Total === null ? 0 : Math.max(0, game.v2Total - game.excludedWordIds.length))
+    : game.selectedWordIds.length;
   const selectedOnlyDisabled = selectedCount === 0;
-  const activeFilterCount = useMemo(() => Object.values(game.filters).filter(Boolean).length, [game.filters]);
   const shouldShowWordListEmptyState = filteredWords.length === 0;
 
   const normalizedWordSetSearch = useMemo(() => normalizeText(game.wordSetSearch), [game.wordSetSearch]);
@@ -896,6 +928,9 @@ export default function HomePage() {
         selectableWords: current.selectableWords,
         selectableWordsFullyLoaded: current.selectableWordsFullyLoaded,
         selectedWordIds: current.selectedWordIds,
+        selectionMode: current.selectionMode,
+        selectionQuery: current.selectionQuery,
+        excludedWordIds: current.excludedWordIds,
         wordSets: current.wordSets,
         selectedWordSetId: current.selectedWordSetId,
         selectedWordSetName: current.selectedWordSetName,
@@ -1172,6 +1207,12 @@ export default function HomePage() {
 
   function toggleSelectedWord(wordId) {
     setGame((prev) => {
+      if (prev.selectionMode === 'allMatching') {
+        const excluded = new Set(prev.excludedWordIds);
+        if (excluded.has(wordId)) excluded.delete(wordId);
+        else excluded.add(wordId);
+        return { ...prev, excludedWordIds: [...excluded], errorMessage: '' };
+      }
       const nextSelected = new Set(prev.selectedWordIds);
       if (nextSelected.has(wordId)) {
         nextSelected.delete(wordId);
@@ -1187,13 +1228,15 @@ export default function HomePage() {
   }
 
   async function handleStartSelected() {
-    if (!game.selectedWordIds.length) {
+    if (game.selectionMode !== 'allMatching' && !game.selectedWordIds.length) {
       setGame((prev) => ({ ...prev, errorMessage: '単語を1つ以上選択してください。' }));
       return;
     }
     setGame((prev) => ({ ...prev, isLoading: true, errorMessage: '' }));
     try {
-      const selectedWords = await fetchSelectedWordsByIds(game.selectedWordIds);
+      const selectedWords = game.selectionMode === 'allMatching'
+        ? await resolveAllMatchingSelection(game)
+        : await fetchSelectedWordsByIds(game.selectedWordIds);
       await handleStart(selectedWords, 'select');
     } catch (error) {
       setGame((prev) => ({ ...prev, isLoading: false, errorMessage: error.message || '選択した単語の取得に失敗しました。' }));
@@ -1253,7 +1296,7 @@ export default function HomePage() {
     }
   }
 
-  const canSaveWordSet = game.selectedWordIds.length > 0 && game.newWordSetName.trim().length > 0;
+  const canSaveWordSet = game.selectionMode === 'manual' && game.selectedWordIds.length > 0 && game.newWordSetName.trim().length > 0;
 
 
   async function openWordPicker(initialPanel = '') {
@@ -1319,7 +1362,11 @@ export default function HomePage() {
       v2Words: [],
       v2NextCursor: '0',
       v2HasMore: false,
-      v2Total: null
+      v2Total: null,
+      selectionMode: 'manual',
+      selectedWordIds: [],
+      excludedWordIds: [],
+      selectionQuery: {}
     }));
     void loadV2Words({ reset: true, search: gameRef.current.v2Search, filters: nextFilters });
   }
@@ -1355,7 +1402,11 @@ export default function HomePage() {
       v2Words: [],
       v2NextCursor: '0',
       v2HasMore: false,
-      v2Total: null
+      v2Total: null,
+      selectionMode: 'manual',
+      selectedWordIds: [],
+      excludedWordIds: [],
+      selectionQuery: {}
     }));
     void loadV2Words({ reset: true, search: gameRef.current.v2Search, filters: nextFilters });
   }
@@ -1412,17 +1463,71 @@ export default function HomePage() {
     });
   }
 
+  async function resolveAllMatchingSelection(sourceGame = gameRef.current) {
+    const response = await fetch('/api/word-picker/resolve-selection', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mode: 'allMatching',
+        query: sourceGame.selectionQuery,
+        excludedIds: sourceGame.excludedWordIds
+      })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || '条件内の単語確定に失敗しました。');
+    return data.words || [];
+  }
+
+  function selectAllMatching() {
+    setGame((prev) => ({
+      ...prev,
+      selectionMode: 'allMatching',
+      selectionQuery: createSelectionQuery(prev.v2Search, prev.filters),
+      selectedWordIds: [],
+      excludedWordIds: [],
+      errorMessage: ''
+    }));
+  }
+
+  function clearSelection() {
+    setGame((prev) => ({ ...prev, selectionMode: 'manual', selectedWordIds: [], excludedWordIds: [], selectionQuery: {}, errorMessage: '' }));
+  }
+
   function selectVisible(shouldSelect) {
     const visibleIds = gameRef.current.v2Words.map((word) => word.id);
     setGame((prev) => {
+      if (prev.selectionMode === 'allMatching') {
+        const excluded = new Set(prev.excludedWordIds);
+        visibleIds.forEach((id) => (shouldSelect ? excluded.delete(id) : excluded.add(id)));
+        return { ...prev, excludedWordIds: [...excluded] };
+      }
       const current = new Set(prev.selectedWordIds);
       visibleIds.forEach((id) => (shouldSelect ? current.add(id) : current.delete(id)));
       return { ...prev, selectedWordIds: [...current] };
     });
   }
 
+  function clearSingleFilter(key) {
+    const nextFilters = { ...gameRef.current.filters, [key]: key === 'importantOnly' ? false : '' };
+    setGame((prev) => ({
+      ...prev,
+      filters: nextFilters,
+      draftFilters: nextFilters,
+      v2Words: [],
+      v2NextCursor: '0',
+      v2HasMore: false,
+      v2Total: null,
+      selectionMode: 'manual',
+      selectedWordIds: [],
+      excludedWordIds: [],
+      selectionQuery: {}
+    }));
+    void loadV2Words({ reset: true, search: gameRef.current.v2Search, filters: nextFilters });
+  }
+
   function applyV2WordSearch() {
     const nextSearch = gameRef.current.v2SearchDraft;
+    clearSelection();
     void loadV2Words({ reset: true, search: nextSearch, preferCache: false });
   }
 
@@ -1475,7 +1580,7 @@ export default function HomePage() {
             {renderQuestionSettings()}
             {game.questionMode === 'select' && (
               <div className="selectArea">
-                <p className="selectedCount">選択中：{game.selectedWordIds.length}語</p>
+                <p className="selectedCount">選択中：{selectedCount}語</p>
                 {game.isLoading && <p className="wordListHint">単語一覧を読み込んでいます</p>}
                 <div className="selectAreaActions">
                   <button type="button" className="openWordModalBtn primaryOpen" onClick={() => void openWordPicker()}>
@@ -1690,15 +1795,33 @@ export default function HomePage() {
                 <button type="button" className="pickerActionBtn primaryAction" onClick={applyV2WordSearch}>検索</button>
               </div>
               <div className="pickerPrimaryActions" aria-label="単語選択操作">
+                <button type="button" className="pickerActionBtn" onClick={selectAllMatching}>条件内を全件選択</button>
                 <button type="button" className="pickerActionBtn" onClick={() => selectVisible(true)}>表示中を選択</button>
-                <button type="button" className="pickerActionBtn" onClick={() => selectVisible(false)}>解除</button>
-                <button type="button" className="pickerActionBtn" onClick={() => openPickerPanel('category')}>カテゴリ</button>
+                <button type="button" className="pickerActionBtn" onClick={clearSelection}>解除</button>
+                <button type="button" className="pickerActionBtn" onClick={() => openPickerPanel('category')}>カテゴリ{activeFilterCount ? `（${activeFilterCount}）` : ''}</button>
                 <button type="button" className="pickerActionBtn" onClick={() => openPickerPanel('save')}>保存</button>
                 <button type="button" className="pickerActionBtn" onClick={() => openPickerPanel('open')}>開く</button>
                 <span className="selectedInline">選択中：<strong>{selectedCount}</strong>語</span>
                 <span className="visibleCount">表示中：{game.v2Words.length}語{game.v2Total !== null ? ` / 全${game.v2Total}語` : ''}</span>
                 {game.v2CacheNotice && <span className="cacheNotice">{game.v2CacheNotice}</span>}
               </div>
+              <div className="activeFilterChips" aria-label="現在のカテゴリ条件">
+                <span className="conditionLabel">条件：</span>
+                {getActiveFilterEntries(game.filters).length === 0 ? (
+                  <span className="filterChip neutral">すべて</span>
+                ) : getActiveFilterEntries(game.filters).map((filter) => (
+                  <button key={filter.key} type="button" className="filterChip removable" onClick={() => clearSingleFilter(filter.key)} aria-label={`${filter.label}条件を解除`}>
+                    {filter.label}：{filter.value} <span aria-hidden="true">×</span>
+                  </button>
+                ))}
+              </div>
+              {game.selectionMode === 'allMatching' && (
+                <div className="allMatchingStatus" aria-live="polite">
+                  <strong>{game.v2Total === null ? '条件内を全件選択中' : `条件内を全件選択中：${game.v2Total}語`}</strong>
+                  <span>除外：{game.excludedWordIds.length}語</span>
+                  {game.v2Total !== null && <span>実際の選択：{Math.max(0, game.v2Total - game.excludedWordIds.length)}語</span>}
+                </div>
+              )}
             </section>
             {!game.pickerPanel && game.wordSetMessage && <p className={`wordSetMessage floatingMessage ${game.wordSetMessageType === 'error' ? 'error' : 'success'}`}>{game.wordSetMessage}</p>}
 
@@ -1854,7 +1977,7 @@ export default function HomePage() {
                   <WordRow
                     key={word.id}
                     word={word}
-                    selected={selectedWordIdSet.has(word.id)}
+                    selected={game.selectionMode === 'allMatching' ? !excludedWordIdSet.has(word.id) : selectedWordIdSet.has(word.id)}
                     isImportant={isImportantWord(word)}
                     onToggle={toggleSelectedWord}
                     onSpeak={speak}
@@ -2807,6 +2930,45 @@ export default function HomePage() {
           align-items: center;
           flex-wrap: wrap;
           gap: 8px;
+        }
+        .activeFilterChips {
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 8px;
+          padding-top: 4px;
+        }
+        .conditionLabel {
+          font-weight: 800;
+          color: #46607e;
+        }
+        .filterChip {
+          border: 1px solid #cfe2ff;
+          border-radius: 999px;
+          background: #eef6ff;
+          color: #2f5f91;
+          font-weight: 800;
+          padding: 6px 10px;
+          line-height: 1;
+        }
+        .filterChip.removable {
+          cursor: pointer;
+        }
+        .filterChip.neutral {
+          background: #f7f9fc;
+          color: #607089;
+          border-color: #dfe7f2;
+        }
+        .allMatchingStatus {
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 10px;
+          padding: 10px 12px;
+          border: 1px solid #bfe3ff;
+          border-radius: 14px;
+          background: #f0f8ff;
+          color: #2f5f91;
         }
         .simplePickerControls {
           gap: 8px;

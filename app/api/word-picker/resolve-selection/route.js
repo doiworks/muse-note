@@ -1,78 +1,89 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { PREVIEW_SESSION_COOKIE_NAME, verifyPreviewSessionCookieValue } from '../../../../lib/auth/previewSession';
+import { applyWordPickerFilters } from '../list/route';
 
-const FILTER_KEYS = ['school_level', 'grade', 'term', 'exam_type', 'category1', 'category2', 'category3'];
-const PAGE_SIZE = 1000;
+const WORD_COLUMNS = [
+  'id',
+  'school_level',
+  'grade',
+  'term',
+  'exam_type',
+  'category1',
+  'category2',
+  'category3',
+  'importance',
+  'japanese',
+  'english',
+  'phonetic',
+  'example',
+  'pos_code',
+  'pos_full',
+  'pos_j',
+  'antonym',
+  'antonym_jp',
+  'text'
+].join(',');
+const RESOLVE_PAGE_SIZE = 1000;
 
-function isJapaneseSearch(search) {
-  return /[^\x00-\x7F]/.test(search);
+function jsonError(message, status = 500) {
+  return NextResponse.json({ error: message }, { status });
 }
 
-function escapeLike(value) {
-  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
-}
-
-function applyFilters(query, params = {}) {
-  FILTER_KEYS.forEach((key) => {
-    if (params[key]) query = query.eq(key, params[key]);
-  });
-  if (params.importantOnly === true || params.importantOnly === 'true') query = query.eq('importance', 1);
-
-  const search = String(params.search || '').trim();
-  if (search) {
-    const column = isJapaneseSearch(search) ? 'japanese' : 'english';
-    query = query.ilike(column, `%${escapeLike(search)}%`);
-  }
-  return query;
+function normalizeExcludedIds(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map((id) => Number(id)).filter(Number.isFinite))];
 }
 
 export async function POST(request) {
   const sessionCookie = request.cookies.get(PREVIEW_SESSION_COOKIE_NAME)?.value;
-  const isLoggedIn = await verifyPreviewSessionCookieValue(sessionCookie);
-  if (!isLoggedIn) return NextResponse.json({ error: '仮ログインが必要です。' }, { status: 401 });
+  if (!(await verifyPreviewSessionCookieValue(sessionCookie))) return jsonError('仮ログインが必要です。', 401);
 
   try {
-    const selection = await request.json();
-    if (selection?.mode === 'manual') {
-      const ids = [...new Set((selection.selectedIds ?? []).map(Number).filter(Number.isFinite))];
-      return NextResponse.json({ ids, count: ids.length });
-    }
+    const body = await request.json().catch(() => ({}));
+    if (body?.mode !== 'allMatching') return jsonError('選択モードが不正です。', 400);
 
-    if (selection?.mode !== 'allMatching') {
-      return NextResponse.json({ error: 'selection.mode は manual または allMatching を指定してください。' }, { status: 400 });
-    }
+    const query = body.query && typeof body.query === 'object' ? body.query : {};
+    const excludedIds = normalizeExcludedIds(body.excludedIds);
+    const excludedSet = new Set(excludedIds);
+    const params = {
+      get(key) {
+        if (key === 'search') return query.search || '';
+        if (key === 'importantOnly') return query.importantOnly ? 'true' : '';
+        return query[key] || '';
+      }
+    };
 
     const supabaseAdmin = getSupabaseAdmin();
-    const excludedIds = new Set((selection.excludedIds ?? []).map(Number).filter(Number.isFinite));
-    const ids = [];
+    const resolvedWords = [];
     let offset = 0;
     let hasMore = true;
 
     while (hasMore) {
-      const { data, error } = await applyFilters(
-        supabaseAdmin.from('words').select('id'),
-        selection.query ?? {}
+      const { data, error } = await applyWordPickerFilters(
+        supabaseAdmin.from('words').select(WORD_COLUMNS),
+        params
       )
         .order('id', { ascending: true })
-        .range(offset, offset + PAGE_SIZE - 1);
+        .range(offset, offset + RESOLVE_PAGE_SIZE - 1);
 
       if (error) {
         console.error('Failed to resolve word picker selection:', error);
-        return NextResponse.json({ error: '単語選択V2の選択確定に失敗しました。' }, { status: 500 });
+        return jsonError('条件内の単語確定に失敗しました。時間をおいて再度お試しください。');
       }
 
       const rows = data ?? [];
-      rows.forEach((row) => {
-        if (!excludedIds.has(row.id)) ids.push(row.id);
+      rows.forEach((word) => {
+        if (!excludedSet.has(Number(word.id))) resolvedWords.push(word);
       });
-      hasMore = rows.length === PAGE_SIZE;
-      offset += PAGE_SIZE;
+      hasMore = rows.length === RESOLVE_PAGE_SIZE;
+      offset += RESOLVE_PAGE_SIZE;
     }
 
-    return NextResponse.json({ ids, count: ids.length });
+    const words = resolvedWords;
+    return NextResponse.json({ words, word_ids: words.map((word) => word.id), total: words.length });
   } catch (error) {
     console.error('Failed to initialize word picker selection resolver:', error);
-    return NextResponse.json({ error: '単語選択V2の選択確定に失敗しました。' }, { status: 500 });
+    return jsonError('条件内の単語確定に失敗しました。時間をおいて再度お試しください。');
   }
 }
