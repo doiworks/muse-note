@@ -4,7 +4,7 @@ import { PREVIEW_SESSION_COOKIE_NAME, verifyPreviewSessionCookieValue } from '..
 
 const WORD_PICKER_COLUMNS = 'id,school_level,grade,term,exam_type,category1,category2,category3,importance,japanese,english,phonetic';
 const FILTER_KEYS = ['school_level', 'grade', 'term', 'exam_type', 'category1', 'category2', 'category3'];
-const DEFAULT_LIMIT = 50;
+const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 
 function jsonError(message, status = 500) {
@@ -40,78 +40,40 @@ function escapeLike(value) {
   return value.replace(/[\\%_]/g, (match) => `\\${match}`);
 }
 
-function applyFilters(query, searchParams) {
+export function applyWordPickerFilters(query, params) {
   FILTER_KEYS.forEach((key) => {
-    const value = searchParams.get(key);
+    const value = typeof params.get === 'function' ? params.get(key) : params[key];
     if (value) query = query.eq(key, value);
   });
 
-  if (searchParams.get('importantOnly') === 'true') {
-    query = query.eq('importance', 1);
+  const importantOnly = typeof params.get === 'function' ? params.get('importantOnly') : params.importantOnly;
+  if (importantOnly === true || importantOnly === 'true') query = query.eq('importance', 1);
+
+  const search = normalizeSearch(typeof params.get === 'function' ? params.get('search') : params.search);
+  if (search) {
+    const column = isJapaneseSearch(search) ? 'japanese' : 'english';
+    query = query.ilike(column, `%${escapeLike(search)}%`);
   }
 
   return query;
 }
 
-function createBaseQuery(supabaseAdmin, searchParams, { count = 'exact' } = {}) {
-  return applyFilters(
-    supabaseAdmin.from('words').select(WORD_PICKER_COLUMNS, { count }),
+async function fetchFastPage(supabaseAdmin, searchParams, offset, limit) {
+  const { data, error } = await applyWordPickerFilters(
+    supabaseAdmin.from('words').select(WORD_PICKER_COLUMNS),
     searchParams
-  );
-}
-
-function applySearchRank(query, column, search, escapedSearch, rank) {
-  if (rank === 'exact') return query.eq(column, search);
-  if (rank === 'prefix') return query.ilike(column, `${escapedSearch}%`).neq(column, search);
-  return query.ilike(column, `%${escapedSearch}%`).not(column, 'ilike', `${escapedSearch}%`);
-}
-
-async function fetchNoSearchPage(supabaseAdmin, searchParams, offset, limit) {
-  const { data, error, count } = await createBaseQuery(supabaseAdmin, searchParams)
+  )
     .order('id', { ascending: true })
-    .range(offset, offset + limit - 1);
+    .range(offset, offset + limit);
 
   if (error) return { error };
-  const total = count ?? 0;
-  const words = data ?? [];
-  return { words, total, has_more: offset + words.length < total, next_cursor: String(offset + words.length) };
-}
-
-async function fetchSearchPage(supabaseAdmin, searchParams, offset, limit, search) {
-  const column = isJapaneseSearch(search) ? 'japanese' : 'english';
-  const escapedSearch = escapeLike(search);
-  const ranks = ['exact', 'prefix', 'contains'];
-  const counts = [];
-
-  for (const rank of ranks) {
-    const { count, error } = await applySearchRank(createBaseQuery(supabaseAdmin, searchParams), column, search, escapedSearch, rank).limit(0);
-    if (error) return { error };
-    counts.push(count ?? 0);
-  }
-
-  const total = counts.reduce((sum, count) => sum + count, 0);
-  const words = [];
-  let skipped = 0;
-
-  for (let index = 0; index < ranks.length && words.length < limit; index += 1) {
-    const rankCount = counts[index];
-    if (offset >= skipped + rankCount) {
-      skipped += rankCount;
-      continue;
-    }
-
-    const rankOffset = Math.max(0, offset - skipped);
-    const take = limit - words.length;
-    const { data, error } = await applySearchRank(createBaseQuery(supabaseAdmin, searchParams, { count: null }), column, search, escapedSearch, ranks[index])
-      .order('id', { ascending: true })
-      .range(rankOffset, rankOffset + take - 1);
-
-    if (error) return { error };
-    words.push(...(data ?? []));
-    skipped += rankCount;
-  }
-
-  return { words, total, has_more: offset + words.length < total, next_cursor: String(offset + words.length) };
+  const rows = data ?? [];
+  const words = rows.slice(0, limit);
+  return {
+    words,
+    has_more: rows.length > limit,
+    next_cursor: String(offset + words.length)
+  };
 }
 
 export async function GET(request) {
@@ -122,10 +84,7 @@ export async function GET(request) {
     const searchParams = new URL(request.url).searchParams;
     const limit = parseLimit(searchParams.get('limit'));
     const offset = parseOffset(searchParams.get('cursor') ?? searchParams.get('offset'));
-    const search = normalizeSearch(searchParams.get('search'));
-    const result = search
-      ? await fetchSearchPage(supabaseAdmin, searchParams, offset, limit, search)
-      : await fetchNoSearchPage(supabaseAdmin, searchParams, offset, limit);
+    const result = await fetchFastPage(supabaseAdmin, searchParams, offset, limit);
 
     if (result.error) {
       console.error('Failed to fetch word picker list:', result.error);
