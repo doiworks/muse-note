@@ -37,10 +37,6 @@ const QUESTION_MODE_OPTIONS = [
 ];
 const MIN_CANDIDATE_FETCH = 50;
 const MAX_FETCH_LIMIT = 500;
-const SELECT_PAGE_SIZE = 50;
-const WORD_ROW_HEIGHT = 96;
-const VIRTUAL_OVERSCAN = 8;
-const PREFETCH_REMAINING_ROWS = 20;
 
 const INITIAL_GAME = {
   screen: 'intro',
@@ -52,10 +48,6 @@ const INITIAL_GAME = {
   words: [],
   selectableWords: [],
   selectableWordsFullyLoaded: false,
-  selectableWordsTotal: 0,
-  selectableWordsHasMore: true,
-  selectableWordsNextCursor: 0,
-  selectableWordsQueryKey: '',
   selectedWordIds: [],
   wordSets: [],
   selectedWordSetId: '',
@@ -293,8 +285,6 @@ export default function HomePage() {
   const intervalRef = useRef(null);
   const voicesRef = useRef([]);
   const gameRef = useRef(INITIAL_GAME);
-  const wordListRef = useRef(null);
-  const selectFetchRef = useRef({ queryKey: '', isFetching: false });
   const audioContextRef = useRef(null);
   const currentWord = game.quizWords[game.currentIndex] || null;
   const totalElapsed = game.now && game.totalStart ? game.now - game.totalStart : 0;
@@ -305,28 +295,21 @@ export default function HomePage() {
     acc[key] = [...new Set(game.selectableWords.map((word) => word[key]).filter(hasValue).map(String))].sort((a, b) => a.localeCompare(b, 'ja'));
     return acc;
   }, {}), [game.selectableWords]);
-  const filteredWords = game.selectableWords;
-  const draftFilteredWordCount = game.selectableWordsTotal;
-  const [virtualScrollTop, setVirtualScrollTop] = useState(0);
-  const virtualRange = useMemo(() => {
-    const viewportHeight = wordListRef.current?.clientHeight || 520;
-    const start = Math.max(0, Math.floor(virtualScrollTop / WORD_ROW_HEIGHT) - VIRTUAL_OVERSCAN);
-    const visibleCount = Math.ceil(viewportHeight / WORD_ROW_HEIGHT) + VIRTUAL_OVERSCAN * 2;
-    const end = Math.min(filteredWords.length, start + visibleCount);
-    return { start, end };
-  }, [filteredWords.length, virtualScrollTop]);
-  const virtualWords = filteredWords.slice(virtualRange.start, virtualRange.end);
-  const virtualPaddingTop = virtualRange.start * WORD_ROW_HEIGHT;
-  const virtualPaddingBottom = Math.max(0, (filteredWords.length - virtualRange.end) * WORD_ROW_HEIGHT);
+  const normalizedWordSearch = useMemo(() => normalizeText(game.wordSearch), [game.wordSearch]);
+  const keywordMatchedWords = useMemo(() => game.selectableWords.filter((word) => (
+    !normalizedWordSearch ||
+    ['english', 'japanese', 'phonetic', 'example', 'pos_j', 'category1', 'category2', 'category3', 'exam_type'].some((field) =>
+      normalizeText(word[field]).includes(normalizedWordSearch)
+    )
+  )), [game.selectableWords, normalizedWordSearch]);
 
-  useEffect(() => {
-    if (game.questionMode !== 'select' || !game.isWordPickerOpen) return;
-    if (!game.selectableWordsHasMore || selectFetchRef.current.isFetching) return;
-    const remainingLoadedRows = filteredWords.length - virtualRange.end;
-    if (remainingLoadedRows <= PREFETCH_REMAINING_ROWS) {
-      void fetchSelectableWordPage({ offset: game.selectableWordsNextCursor });
-    }
-  }, [game.questionMode, game.isWordPickerOpen, game.selectableWordsHasMore, game.selectableWordsNextCursor, filteredWords.length, virtualRange.end]);
+  const filteredWords = useMemo(() => keywordMatchedWords.filter((word) => (
+    matchesWordFilters(word, game.filters, selectedWordIdSet)
+  )), [keywordMatchedWords, game.filters, selectedWordIdSet]);
+
+  const draftFilteredWordCount = useMemo(() => keywordMatchedWords.filter((word) => (
+    matchesWordFilters(word, game.draftFilters, selectedWordIdSet)
+  )).length, [keywordMatchedWords, game.draftFilters, selectedWordIdSet]);
 
   const selectedCount = game.selectedWordIds.length;
   const selectedOnlyDisabled = selectedCount === 0;
@@ -344,15 +327,6 @@ export default function HomePage() {
   useEffect(() => {
     gameRef.current = game;
   }, [game]);
-
-  useEffect(() => {
-    if (game.questionMode !== 'select' || !game.isWordPickerOpen) return;
-    const queryKey = getSelectQueryKey(game.filters, game.wordSearch);
-    if (game.selectableWordsQueryKey === queryKey && game.selectableWords.length) return;
-    wordListRef.current?.scrollTo({ top: 0 });
-    setVirtualScrollTop(0);
-    void fetchSelectableWordPage({ offset: 0, replace: true, filters: game.filters, search: game.wordSearch });
-  }, [game.questionMode, game.isWordPickerOpen, game.filters, game.wordSearch, game.selectedWordIds]);
 
   useEffect(() => {
     function updateVoices() {
@@ -616,77 +590,6 @@ export default function HomePage() {
     }, autoJudgeAt * 1000);
   }
 
-  function buildSelectQueryParams({ offset = 0, limit = SELECT_PAGE_SIZE, idsOnly = false, filters = gameRef.current.filters, search = gameRef.current.wordSearch } = {}) {
-    const params = new URLSearchParams({ mode: 'select', limit: String(limit), offset: String(offset) });
-    if (idsOnly) params.set('ids_only', '1');
-    if (search.trim()) params.set('search', search.trim());
-    FILTER_KEYS.forEach((key) => {
-      if (filters[key]) params.set(key, filters[key]);
-    });
-    if (filters.importantOnly) params.set('importantOnly', '1');
-    if (filters.selectedOnly) {
-      params.set('selectedOnly', '1');
-      if (gameRef.current.selectedWordIds.length) {
-        params.set('selected_ids', gameRef.current.selectedWordIds.join(','));
-      }
-    }
-    return params;
-  }
-
-  function getSelectQueryKey(filters = gameRef.current.filters, search = gameRef.current.wordSearch) {
-    return buildSelectQueryParams({ offset: 0, limit: SELECT_PAGE_SIZE, filters, search }).toString();
-  }
-
-  async function fetchSelectableWordPage({ offset = 0, replace = false, filters = gameRef.current.filters, search = gameRef.current.wordSearch } = {}) {
-    const queryKey = getSelectQueryKey(filters, search);
-    if (selectFetchRef.current.isFetching && selectFetchRef.current.queryKey === `${queryKey}:${offset}`) return;
-    selectFetchRef.current = { isFetching: true, queryKey: `${queryKey}:${offset}` };
-    setGame((prev) => ({ ...prev, isLoading: replace ? true : prev.isLoading }));
-    try {
-      const response = await fetch(`/api/words?${buildSelectQueryParams({ offset, filters, search }).toString()}`);
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || '単語データの取得に失敗しました。時間をおいて再度お試しください。');
-      setGame((prev) => {
-        if (getSelectQueryKey(prev.filters, prev.wordSearch) !== queryKey) return prev;
-        const nextWords = replace ? (data.words || []) : [...prev.selectableWords, ...(data.words || [])];
-        return {
-          ...prev,
-          selectableWords: nextWords,
-          selectableWordsFullyLoaded: !data.has_more,
-          selectableWordsTotal: Number(data.total ?? nextWords.length),
-          selectableWordsHasMore: Boolean(data.has_more),
-          selectableWordsNextCursor: data.next_cursor ?? nextWords.length,
-          selectableWordsQueryKey: queryKey,
-          isLoading: false,
-          errorMessage: ''
-        };
-      });
-    } finally {
-      selectFetchRef.current = { isFetching: false, queryKey: '' };
-    }
-  }
-
-
-  async function fetchSelectableWordsByIds(wordIds) {
-    const words = [];
-    for (let index = 0; index < wordIds.length; index += MAX_FETCH_LIMIT) {
-      const ids = wordIds.slice(index, index + MAX_FETCH_LIMIT);
-      const params = new URLSearchParams({ mode: 'select', ids: ids.join(',') });
-      const response = await fetch(`/api/words?${params.toString()}`);
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || '単語データの取得に失敗しました。時間をおいて再度お試しください。');
-      words.push(...(data.words || []));
-    }
-    return words;
-  }
-
-  async function fetchSelectableIdsForCurrentQuery() {
-    const response = await fetch(`/api/words?${buildSelectQueryParams({ idsOnly: true }).toString()}`);
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || '単語データの取得に失敗しました。時間をおいて再度お試しください。');
-    return data.ids || [];
-  }
-
   async function fetchWords(requestedCount = null, questionMode = 'balanced') {
     console.time?.('fetchWords');
     try {
@@ -708,8 +611,30 @@ export default function HomePage() {
   }
 
   async function fetchAllSelectableWords() {
-    await fetchSelectableWordPage({ offset: 0, replace: true });
-    return gameRef.current.selectableWords;
+    console.time?.('fetchAllSelectableWords');
+    try {
+      const allWords = [];
+      let offset = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        const query = `?limit=${MAX_FETCH_LIMIT}&offset=${offset}&mode=select`;
+        const response = await fetch(`/api/words${query}`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || '単語データの取得に失敗しました。時間をおいて再度お試しください。');
+        }
+
+        const words = data.words || [];
+        allWords.push(...words);
+        hasMore = Boolean(data.has_more);
+        offset += MAX_FETCH_LIMIT;
+      }
+
+      return allWords;
+    } finally {
+      console.timeEnd?.('fetchAllSelectableWords');
+    }
   }
 
   async function handleQuestionModeChange(questionMode) {
@@ -726,7 +651,10 @@ export default function HomePage() {
     });
     if (questionMode !== 'select') return;
     try {
-      await fetchSelectableWordPage({ offset: 0, replace: true });
+      const words = gameRef.current.selectableWordsFullyLoaded
+        ? gameRef.current.selectableWords
+        : await fetchAllSelectableWords();
+      setGame((prev) => ({ ...prev, selectableWords: words, selectableWordsFullyLoaded: true, isLoading: false }));
     } catch (error) {
       setGame((prev) => ({ ...prev, isLoading: false, errorMessage: error.message }));
       return;
@@ -1083,18 +1011,14 @@ export default function HomePage() {
     });
   }
 
-  async function handleStartSelected() {
+  function handleStartSelected() {
     if (!game.selectedWordIds.length) {
       setGame((prev) => ({ ...prev, errorMessage: '単語を1つ以上選択してください。' }));
       return;
     }
-    try {
-      setGame((prev) => ({ ...prev, isLoading: true, errorMessage: '' }));
-      const selectedWords = await fetchSelectableWordsByIds(game.selectedWordIds);
-      await handleStart(selectedWords, 'select');
-    } catch (error) {
-      setGame((prev) => ({ ...prev, isLoading: false, errorMessage: error.message || '選択した単語の取得に失敗しました。' }));
-    }
+    const selectedSet = new Set(game.selectedWordIds);
+    const selectedWords = game.selectableWords.filter((word) => selectedSet.has(word.id));
+    void handleStart(selectedWords, 'select');
   }
 
   async function handleSaveWordSet() {
@@ -1259,17 +1183,13 @@ export default function HomePage() {
     });
   }
 
-  async function selectVisible(shouldSelect) {
-    try {
-      const matchingIds = await fetchSelectableIdsForCurrentQuery();
-      setGame((prev) => {
-        const current = new Set(prev.selectedWordIds);
-        matchingIds.forEach((id) => (shouldSelect ? current.add(id) : current.delete(id)));
-        return { ...prev, selectedWordIds: [...current] };
-      });
-    } catch (error) {
-      setGame((prev) => ({ ...prev, errorMessage: error.message || '単語の選択に失敗しました。' }));
-    }
+  function selectVisible(shouldSelect) {
+    const visibleIds = filteredWords.map((word) => word.id);
+    setGame((prev) => {
+      const current = new Set(prev.selectedWordIds);
+      visibleIds.forEach((id) => (shouldSelect ? current.add(id) : current.delete(id)));
+      return { ...prev, selectedWordIds: [...current] };
+    });
   }
 
 
@@ -1525,12 +1445,12 @@ export default function HomePage() {
                 <button type="button" className="pickerActionBtn" onClick={() => openPickerPanel('category')}>
                   カテゴリ{activeFilterCount ? `（${activeFilterCount}）` : ''}
                 </button>
-                <button type="button" className="pickerActionBtn" onClick={() => void selectVisible(true)}>すべて選択</button>
-                <button type="button" className="pickerActionBtn" onClick={() => void selectVisible(false)}>解除</button>
+                <button type="button" className="pickerActionBtn" onClick={() => selectVisible(true)}>すべて選択</button>
+                <button type="button" className="pickerActionBtn" onClick={() => selectVisible(false)}>解除</button>
                 <button type="button" className="pickerActionBtn" onClick={() => openPickerPanel('save')}>保存</button>
                 <button type="button" className="pickerActionBtn" onClick={() => openPickerPanel('open')}>開く</button>
                 <span className="selectedInline">選択中：<strong>{selectedCount}</strong>語</span>
-                <span className="visibleCount">全{game.selectableWordsTotal}語</span>
+                <span className="visibleCount">表示中：{filteredWords.length}語</span>
               </div>
             </section>
             {!game.pickerPanel && game.wordSetMessage && <p className={`wordSetMessage floatingMessage ${game.wordSetMessageType === 'error' ? 'error' : 'success'}`}>{game.wordSetMessage}</p>}
@@ -1666,20 +1586,9 @@ export default function HomePage() {
             <section className="wordListPanel mainWordListPanel" aria-label="単語一覧">
               <div className="wordListHeader">
                 <h3>単語一覧</h3>
-                <span>全{game.selectableWordsTotal}語</span>
+                <span>{filteredWords.length}語</span>
               </div>
-              <div
-                className="wordList inModal"
-                ref={wordListRef}
-                onScroll={(event) => {
-                  const target = event.currentTarget;
-                  setVirtualScrollTop(target.scrollTop);
-                  const remainingLoadedRows = filteredWords.length - Math.ceil((target.scrollTop + target.clientHeight) / WORD_ROW_HEIGHT);
-                  if (game.selectableWordsHasMore && remainingLoadedRows <= PREFETCH_REMAINING_ROWS && !selectFetchRef.current.isFetching) {
-                    void fetchSelectableWordPage({ offset: game.selectableWordsNextCursor });
-                  }
-                }}
-              >
+              <div className="wordList inModal">
                 {game.isLoading ? (
                   <div className="wordListEmpty">
                     <p>単語一覧を読み込んでいます</p>
@@ -1690,21 +1599,16 @@ export default function HomePage() {
                     <p>検索やカテゴリを少し減らしてください</p>
                   </div>
                 )}
-                {!game.isLoading && !shouldShowWordListEmptyState && (
-                  <div style={{ paddingTop: virtualPaddingTop, paddingBottom: virtualPaddingBottom }}>
-                    {virtualWords.map((word) => (
-                      <div key={word.id} style={{ height: WORD_ROW_HEIGHT, paddingBottom: 6 }}>
-                        <WordRow
-                          word={word}
-                          selected={selectedWordIdSet.has(word.id)}
-                          isImportant={isImportantWord(word)}
-                          onToggle={toggleSelectedWord}
-                          onSpeak={speak}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {!game.isLoading && filteredWords.map((word) => (
+                  <WordRow
+                    key={word.id}
+                    word={word}
+                    selected={selectedWordIdSet.has(word.id)}
+                    isImportant={isImportantWord(word)}
+                    onToggle={toggleSelectedWord}
+                    onSpeak={speak}
+                  />
+                ))}
               </div>
             </section>
 
