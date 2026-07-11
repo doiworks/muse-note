@@ -14,13 +14,19 @@ const WORD_COLUMNS = [
   'importance',
   'japanese',
   'english',
-  'phonetic'
+  'phonetic',
+  'example',
+  'pos_code',
+  'pos_full',
+  'pos_j',
+  'antonym',
+  'antonym_jp',
+  'text'
 ].join(',');
-const WORD_ID_COLUMNS = 'id';
 
 const WORD_FETCH_ERROR_MESSAGE = '単語データの取得に失敗しました。時間をおいて再度お試しください。';
 const PREVIEW_USER_ID = '00000000-0000-4000-8000-000000000001';
-const DEFAULT_FETCH_LIMIT = 50;
+const DEFAULT_FETCH_LIMIT = 200;
 const MAX_FETCH_LIMIT = 500;
 const WORD_PAGE_SIZE = 500;
 const STATS_FILTER_CHUNK_SIZE = 500;
@@ -52,218 +58,6 @@ function parseOffset(value) {
 
 function hasIdValue(value) {
   return value !== null && value !== undefined;
-}
-
-const FILTER_COLUMNS = ['school_level', 'grade', 'term', 'exam_type', 'category1', 'category2', 'category3'];
-const SEARCH_BUCKETS = ['exact', 'prefix', 'contains'];
-
-function normalizeSearchValue(value) {
-  return value ? value.normalize('NFKC').trim() : '';
-}
-
-function detectSearchColumn(searchText) {
-  if (!searchText) return null;
-  return /^[\x00-\x7F]+$/.test(searchText) ? 'english' : 'japanese';
-}
-
-function escapeLikePattern(value) {
-  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
-}
-
-function applySelectFilters(query, searchParams, { skipSearch = false } = {}) {
-  FILTER_COLUMNS.forEach((column) => {
-    const value = searchParams.get(column);
-    if (hasValue(value)) query = query.eq(column, value);
-  });
-
-  if (searchParams.get('importantOnly') === '1') {
-    query = query.eq('importance', 1);
-  }
-
-  const selectedIds = parseIds(searchParams.get('selected_ids'));
-  if (searchParams.get('selectedOnly') === '1') {
-    query = selectedIds.length ? query.in('id', selectedIds) : query.in('id', [-1]);
-  }
-
-  if (!skipSearch) {
-    const searchText = normalizeSearchValue(searchParams.get('search'));
-    const searchColumn = detectSearchColumn(searchText);
-    if (searchColumn) {
-      query = query.ilike(searchColumn, `%${escapeLikePattern(searchText)}%`);
-    }
-  }
-
-  return query;
-}
-
-function sortSelectWords(words, searchText) {
-  const normalizedSearch = normalizeSearchValue(searchText).toLowerCase();
-  const searchColumn = detectSearchColumn(normalizedSearch);
-  if (!normalizedSearch || !searchColumn) return words;
-
-  return [...words].sort((a, b) => {
-    const valueA = normalizeSearchValue(a?.[searchColumn]).toLowerCase();
-    const valueB = normalizeSearchValue(b?.[searchColumn]).toLowerCase();
-    const rank = (value) => {
-      if (value === normalizedSearch) return 0;
-      if (value.startsWith(normalizedSearch)) return 1;
-      return 2;
-    };
-    const rankDiff = rank(valueA) - rank(valueB);
-    if (rankDiff !== 0) return rankDiff;
-    return Number(a.id) - Number(b.id);
-  });
-}
-
-
-function parseIds(value) {
-  if (!value) return [];
-  return String(value)
-    .split(',')
-    .map((id) => Number(id))
-    .filter((id) => Number.isFinite(id));
-}
-
-async function fetchSelectWordsByIds(supabaseAdmin, ids) {
-  if (!ids.length) return { data: [], error: null };
-  const { data, error } = await supabaseAdmin
-    .from('words')
-    .select(WORD_COLUMNS)
-    .in('id', ids);
-  if (error) return { data: null, error };
-  const order = new Map(ids.map((id, index) => [id, index]));
-  return { data: [...(data ?? [])].sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0)), error: null };
-}
-
-function applySearchBucket(query, column, escapedSearchText, bucket) {
-  if (bucket === 'exact') {
-    return query.ilike(column, escapedSearchText);
-  }
-  if (bucket === 'prefix') {
-    return query.ilike(column, `${escapedSearchText}%`).not(column, 'ilike', escapedSearchText);
-  }
-  return query
-    .ilike(column, `%${escapedSearchText}%`)
-    .not(column, 'ilike', `${escapedSearchText}%`);
-}
-
-async function fetchSelectBucket(supabaseAdmin, searchParams, { columns, offset, limit, searchColumn, escapedSearchText, bucket, withRows }) {
-  let query = supabaseAdmin
-    .from('words')
-    .select(columns, { count: 'exact', head: !withRows });
-
-  query = applySelectFilters(query, searchParams, { skipSearch: true });
-  query = applySearchBucket(query, searchColumn, escapedSearchText, bucket).order('id', { ascending: true });
-  if (withRows) query = query.range(offset, offset + limit - 1);
-
-  const { data, error, count } = await query;
-  return { data: data ?? [], error, count: count ?? 0 };
-}
-
-async function fetchRankedSelectWords(supabaseAdmin, searchParams, { columns, fetchAllIds }) {
-  const offset = parseOffset(searchParams.get('offset'));
-  const limit = parseLimit(searchParams.get('limit'));
-  const searchText = normalizeSearchValue(searchParams.get('search'));
-  const searchColumn = detectSearchColumn(searchText);
-  const escapedSearchText = escapeLikePattern(searchText);
-  const bucketCounts = [];
-
-  for (const bucket of SEARCH_BUCKETS) {
-    const result = await fetchSelectBucket(supabaseAdmin, searchParams, {
-      columns,
-      offset: 0,
-      limit: 1,
-      searchColumn,
-      escapedSearchText,
-      bucket,
-      withRows: false
-    });
-    if (result.error) return { data: null, error: result.error };
-    bucketCounts.push({ bucket, count: result.count });
-  }
-
-  const total = bucketCounts.reduce((sum, item) => sum + item.count, 0);
-  if (fetchAllIds) {
-    const allRows = [];
-    for (const { bucket, count } of bucketCounts) {
-      if (!count) continue;
-      const result = await fetchSelectBucket(supabaseAdmin, searchParams, {
-        columns,
-        offset: 0,
-        limit: count,
-        searchColumn,
-        escapedSearchText,
-        bucket,
-        withRows: true
-      });
-      if (result.error) return { data: null, error: result.error };
-      allRows.push(...result.data);
-    }
-    return { data: allRows, error: null, total, hasMore: false, nextCursor: null };
-  }
-
-  const rows = [];
-  let remainingOffset = offset;
-  let remainingLimit = limit;
-
-  for (const { bucket, count } of bucketCounts) {
-    if (remainingLimit <= 0) break;
-    if (remainingOffset >= count) {
-      remainingOffset -= count;
-      continue;
-    }
-    const take = Math.min(remainingLimit, count - remainingOffset);
-    const result = await fetchSelectBucket(supabaseAdmin, searchParams, {
-      columns,
-      offset: remainingOffset,
-      limit: take,
-      searchColumn,
-      escapedSearchText,
-      bucket,
-      withRows: true
-    });
-    if (result.error) return { data: null, error: result.error };
-    rows.push(...result.data);
-    remainingLimit -= result.data.length;
-    remainingOffset = 0;
-  }
-
-  return {
-    data: rows,
-    error: null,
-    total,
-    hasMore: offset + rows.length < total,
-    nextCursor: offset + rows.length < total ? offset + rows.length : null
-  };
-}
-
-async function fetchSelectWords(supabaseAdmin, searchParams, { columns = WORD_COLUMNS, fetchAllIds = false } = {}) {
-  const offset = parseOffset(searchParams.get('offset'));
-  const limit = parseLimit(searchParams.get('limit'));
-  const searchText = normalizeSearchValue(searchParams.get('search'));
-  if (detectSearchColumn(searchText)) {
-    return fetchRankedSelectWords(supabaseAdmin, searchParams, { columns, fetchAllIds });
-  }
-
-  let query = supabaseAdmin
-    .from('words')
-    .select(columns, { count: 'exact' });
-
-  query = applySelectFilters(query, searchParams);
-  query = query.order('id', { ascending: true });
-  if (!fetchAllIds) query = query.range(offset, offset + limit - 1);
-
-  const { data, error, count } = await query;
-  if (error) return { data: null, error };
-
-  const rows = data ?? [];
-  return {
-    data: rows,
-    error: null,
-    total: count ?? rows.length,
-    hasMore: !fetchAllIds && offset + rows.length < (count ?? 0),
-    nextCursor: !fetchAllIds && offset + rows.length < (count ?? 0) ? offset + rows.length : null
-  };
 }
 
 function rankWordForBalancedOrder(word) {
@@ -422,33 +216,14 @@ export async function GET(request) {
     const isSelectMode = modeParam === WORD_MODE.SELECT;
 
     if (isSelectMode) {
-      const requestedIds = parseIds(searchParams.get('ids'));
-      if (requestedIds.length) {
-        const { data, error } = await fetchSelectWordsByIds(supabaseAdmin, requestedIds);
-        if (error) {
-          console.error('Failed to fetch selected words with service role client:', error);
-          return createErrorResponse(WORD_FETCH_ERROR_MESSAGE, 500);
-        }
-        return NextResponse.json({ words: attachStatsToWords(data ?? [], []), total: data?.length ?? 0, has_more: false, next_cursor: null });
-      }
-
-      const idsOnly = searchParams.get('ids_only') === '1';
-      const result = await fetchSelectWords(supabaseAdmin, searchParams, {
-        columns: idsOnly ? WORD_ID_COLUMNS : WORD_COLUMNS,
-        fetchAllIds: idsOnly
-      });
-      if (result.error) {
-        console.error('Failed to fetch words with service role client:', result.error);
+      const { data, error } = await fetchWordPage(supabaseAdmin, offset, limit);
+      if (error) {
+        console.error('Failed to fetch words with service role client:', error);
         return createErrorResponse(WORD_FETCH_ERROR_MESSAGE, 500);
       }
 
-      return NextResponse.json({
-        words: idsOnly ? [] : attachStatsToWords(result.data ?? [], []),
-        ids: idsOnly ? (result.data ?? []).map((word) => word.id).filter(hasIdValue) : undefined,
-        total: result.total,
-        has_more: result.hasMore,
-        next_cursor: result.nextCursor
-      });
+      const wordRows = data ?? [];
+      return NextResponse.json({ words: attachStatsToWords(wordRows, []), has_more: wordRows.length === limit });
     }
 
     const { data: wordRows, error } = await fetchAllWords(supabaseAdmin);
