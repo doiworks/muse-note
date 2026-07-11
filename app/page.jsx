@@ -88,6 +88,10 @@ const INITIAL_GAME = {
   v2CacheNotice: '',
   v2Metrics: { source: '-', cacheMs: null, apiMs: null, renderMs: null, slow: '' },
   v2Total: null,
+  categoryOptions: {},
+  categoryOptionsLoaded: false,
+  categoryOptionsLoading: false,
+  categoryOptionsError: '',
   filters: {
     school_level: '',
     grade: '',
@@ -308,10 +312,6 @@ export default function HomePage() {
   const questionElapsed = game.now && game.questionStart ? game.now - game.questionStart : 0;
   const accuracy = game.answeredCount ? Math.round((game.correctCount / game.answeredCount) * 100) : 0;
   const selectedWordIdSet = useMemo(() => new Set(game.selectedWordIds), [game.selectedWordIds]);
-  const filterOptions = useMemo(() => FILTER_KEYS.reduce((acc, key) => {
-    acc[key] = [...new Set(game.selectableWords.map((word) => word[key]).filter(hasValue).map(String))].sort((a, b) => a.localeCompare(b, 'ja'));
-    return acc;
-  }, {}), [game.selectableWords]);
   const normalizedWordSearch = useMemo(() => normalizeText(game.wordSearch), [game.wordSearch]);
   const keywordMatchedWords = useMemo(() => game.selectableWords.filter((word) => (
     !normalizedWordSearch ||
@@ -323,10 +323,6 @@ export default function HomePage() {
   const filteredWords = useMemo(() => keywordMatchedWords.filter((word) => (
     matchesWordFilters(word, game.filters, selectedWordIdSet)
   )), [keywordMatchedWords, game.filters, selectedWordIdSet]);
-
-  const draftFilteredWordCount = useMemo(() => keywordMatchedWords.filter((word) => (
-    matchesWordFilters(word, game.draftFilters, selectedWordIdSet)
-  )).length, [keywordMatchedWords, game.draftFilters, selectedWordIdSet]);
 
   const selectedCount = game.selectedWordIds.length;
   const selectedOnlyDisabled = selectedCount === 0;
@@ -651,10 +647,23 @@ export default function HomePage() {
   }
 
 
-  function buildWordPickerListUrl({ search = '', cursor = '0', limit = WORD_PICKER_PAGE_SIZE } = {}) {
+  function appendV2FilterParams(params, filters = {}) {
+    FILTER_KEYS.forEach((key) => {
+      const value = filters[key];
+      if (value) params.set(key, String(value));
+    });
+    if (filters.importantOnly) params.set('importantOnly', 'true');
+  }
+
+  function hasV2FilterParams(filters = {}) {
+    return FILTER_KEYS.some((key) => Boolean(filters[key])) || Boolean(filters.importantOnly);
+  }
+
+  function buildWordPickerListUrl({ search = '', cursor = '0', limit = WORD_PICKER_PAGE_SIZE, filters = {} } = {}) {
     const params = new URLSearchParams({ limit: String(limit), cursor: String(cursor) });
     const trimmedSearch = search.trim();
     if (trimmedSearch) params.set('search', trimmedSearch);
+    appendV2FilterParams(params, filters);
     return `/api/word-picker/list?${params.toString()}`;
   }
 
@@ -679,9 +688,9 @@ export default function HomePage() {
     }
   }
 
-  async function fetchV2Page({ search = '', cursor = '0', limit = WORD_PICKER_PAGE_SIZE } = {}) {
+  async function fetchV2Page({ search = '', cursor = '0', limit = WORD_PICKER_PAGE_SIZE, filters = {} } = {}) {
     const startedAt = performance.now();
-    const response = await fetch(buildWordPickerListUrl({ search, cursor, limit }), { cache: 'no-store' });
+    const response = await fetch(buildWordPickerListUrl({ search, cursor, limit, filters }), { cache: 'no-store' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || '単語一覧の取得に失敗しました。');
     return { data, elapsed: Math.round(performance.now() - startedAt) };
@@ -712,12 +721,12 @@ export default function HomePage() {
     if (v2PrefetchRef.current.key === key && (v2PrefetchRef.current.promise || v2PrefetchRef.current.data)) {
       return v2PrefetchRef.current.promise;
     }
-    const promise = fetchV2Page({ search: '', cursor: '0', limit: WORD_PICKER_PAGE_SIZE })
+    const promise = fetchV2Page({ search: '', cursor: '0', limit: WORD_PICKER_PAGE_SIZE, filters: INITIAL_GAME.filters })
       .then(({ data, elapsed }) => {
         v2PrefetchRef.current = { key, promise: null, data };
         writeV2Cache(data);
         updateV2Metrics({ apiMs: elapsed });
-        void prefetchV2NextPage(data.next_cursor ?? String(WORD_PICKER_PAGE_SIZE));
+        void prefetchV2NextPage(data.next_cursor ?? String(WORD_PICKER_PAGE_SIZE), INITIAL_GAME.filters);
         return data;
       })
       .catch((error) => {
@@ -728,19 +737,20 @@ export default function HomePage() {
     return promise;
   }
 
-  async function prefetchV2NextPage(cursor) {
+  async function prefetchV2NextPage(cursor, filters = gameRef.current.filters, search = gameRef.current.v2Search) {
     if (!cursor) return;
     try {
-      await fetchV2Page({ search: gameRef.current.v2Search, cursor, limit: WORD_PICKER_PREFETCH_SIZE });
+      await fetchV2Page({ search, cursor, limit: WORD_PICKER_PREFETCH_SIZE, filters });
     } catch (error) {
       console.warn('Word picker next-page prefetch failed:', error);
     }
   }
 
-  async function fetchV2TotalInBackground(search = '') {
+  async function fetchV2TotalInBackground(search = '', filters = gameRef.current.filters) {
     try {
       const params = new URLSearchParams({ limit: '1', cursor: '0' });
       if (search.trim()) params.set('search', search.trim());
+      appendV2FilterParams(params, filters);
       const response = await fetch(`/api/word-picker/count?${params.toString()}`, { cache: 'no-store' });
       const data = await response.json().catch(() => ({}));
       if (response.ok) setGame((prev) => ({ ...prev, v2Total: data.total ?? data.count ?? null }));
@@ -749,10 +759,11 @@ export default function HomePage() {
     }
   }
 
-  const loadV2Words = useCallback(async ({ reset = false, search = gameRef.current.v2Search, preferCache = false } = {}) => {
+  const loadV2Words = useCallback(async ({ reset = false, search = gameRef.current.v2Search, filters = gameRef.current.filters, preferCache = false } = {}) => {
     const current = gameRef.current;
     const cursor = reset ? '0' : current.v2NextCursor;
-    const isFirstPage = reset && cursor === '0' && !search.trim();
+    const hasFilters = hasV2FilterParams(filters);
+    const isFirstPage = reset && cursor === '0' && !search.trim() && !hasFilters;
     const renderStartedAt = performance.now();
     let showedInstantData = false;
 
@@ -800,7 +811,7 @@ export default function HomePage() {
       const inFlightFirstPage = isFirstPage && v2PrefetchRef.current.promise;
       const { data, elapsed } = inFlightFirstPage
         ? { data: await v2PrefetchRef.current.promise, elapsed: null }
-        : await fetchV2Page({ search, cursor, limit: WORD_PICKER_PAGE_SIZE });
+        : await fetchV2Page({ search, cursor, limit: WORD_PICKER_PAGE_SIZE, filters });
       if (isFirstPage) writeV2Cache(data);
       setGame((prev) => ({
         ...prev,
@@ -818,8 +829,8 @@ export default function HomePage() {
       measureV2Render(renderStartedAt);
       updateV2Metrics(elapsed === null ? { source: 'api' } : { source: 'api', apiMs: elapsed });
       if (reset) {
-        void fetchV2TotalInBackground(search);
-        void prefetchV2NextPage(data.next_cursor ?? String(WORD_PICKER_PAGE_SIZE));
+        void fetchV2TotalInBackground(search, filters);
+        void prefetchV2NextPage(data.next_cursor ?? String(WORD_PICKER_PAGE_SIZE), filters, search);
       }
     } catch (error) {
       setGame((prev) => ({
@@ -1272,6 +1283,7 @@ export default function HomePage() {
 
   function openPickerPanel(panel) {
     if (panel === 'open' && !gameRef.current.wordSets.length) void loadWordSetsForPanel();
+    if (panel === 'category' && !gameRef.current.categoryOptionsLoaded && !gameRef.current.categoryOptionsLoading) void loadCategoryOptions();
     setGame((prev) => ({
       ...prev,
       pickerPanel: prev.pickerPanel === panel ? '' : panel,
@@ -1298,11 +1310,54 @@ export default function HomePage() {
   }
 
   function clearFilters() {
-    setGame((prev) => ({ ...prev, draftFilters: { ...INITIAL_GAME.filters } }));
+    const nextFilters = { ...INITIAL_GAME.filters };
+    setGame((prev) => ({
+      ...prev,
+      filters: nextFilters,
+      draftFilters: nextFilters,
+      pickerPanel: '',
+      v2Words: [],
+      v2NextCursor: '0',
+      v2HasMore: false,
+      v2Total: null
+    }));
+    void loadV2Words({ reset: true, search: gameRef.current.v2Search, filters: nextFilters });
+  }
+
+  async function loadCategoryOptions() {
+    setGame((prev) => ({ ...prev, categoryOptionsLoading: true, categoryOptionsError: '' }));
+    try {
+      const response = await fetch('/api/word-picker/options', { cache: 'no-store' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'カテゴリ候補の取得に失敗しました。');
+      setGame((prev) => ({
+        ...prev,
+        categoryOptions: data || {},
+        categoryOptionsLoaded: true,
+        categoryOptionsLoading: false,
+        categoryOptionsError: ''
+      }));
+    } catch (error) {
+      setGame((prev) => ({
+        ...prev,
+        categoryOptionsLoading: false,
+        categoryOptionsError: error.message || 'カテゴリ候補の取得に失敗しました。'
+      }));
+    }
   }
 
   function applyCategoryFilters() {
-    setGame((prev) => ({ ...prev, filters: { ...prev.draftFilters }, pickerPanel: '' }));
+    const nextFilters = { ...gameRef.current.draftFilters };
+    setGame((prev) => ({
+      ...prev,
+      filters: nextFilters,
+      pickerPanel: '',
+      v2Words: [],
+      v2NextCursor: '0',
+      v2HasMore: false,
+      v2Total: null
+    }));
+    void loadV2Words({ reset: true, search: gameRef.current.v2Search, filters: nextFilters });
   }
 
   function togglePendingWordSet(wordSetId) {
@@ -1637,6 +1692,7 @@ export default function HomePage() {
               <div className="pickerPrimaryActions" aria-label="単語選択操作">
                 <button type="button" className="pickerActionBtn" onClick={() => selectVisible(true)}>表示中を選択</button>
                 <button type="button" className="pickerActionBtn" onClick={() => selectVisible(false)}>解除</button>
+                <button type="button" className="pickerActionBtn" onClick={() => openPickerPanel('category')}>カテゴリ</button>
                 <button type="button" className="pickerActionBtn" onClick={() => openPickerPanel('save')}>保存</button>
                 <button type="button" className="pickerActionBtn" onClick={() => openPickerPanel('open')}>開く</button>
                 <span className="selectedInline">選択中：<strong>{selectedCount}</strong>語</span>
@@ -1658,15 +1714,17 @@ export default function HomePage() {
                   </div>
                   <div className="panelCountRow" aria-live="polite">
                     <span>選択中：<strong>{selectedCount}</strong>語</span>
-                    <span>表示中：<strong>{draftFilteredWordCount}</strong>語</span>
+                    <span>表示中：<strong>{game.v2Words.length}</strong>語</span>
                   </div>
+                  {game.categoryOptionsLoading && <p className="wordListHint">カテゴリ候補を読み込み中です...</p>}
+                  {game.categoryOptionsError && <p className="wordSetMessage error">{game.categoryOptionsError}</p>}
                   <div className="filterGrid categoryFilterGrid">
                     {FILTER_KEYS.map((key) => (
                       <label key={key} className="filterField">
                         <span>{key}</span>
                         <select className="filterSelect" value={game.draftFilters[key]} onChange={(event) => setDraftFilterValue(key, event.target.value)}>
                           <option value="">指定なし</option>
-                          {(filterOptions[key] || []).map((value) => <option key={value} value={value}>{value}</option>)}
+                          {(game.categoryOptions[key] || []).map((value) => <option key={value} value={value}>{value}</option>)}
                         </select>
                       </label>
                     ))}
