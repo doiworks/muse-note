@@ -52,6 +52,7 @@ export default function WordPickerV2Page() {
   const [selection, setSelection] = useState({ mode: 'manual', selectedIds: [], excludedIds: [], query: {} });
   const loaderRef = useRef(null);
   const requestIdRef = useRef(0);
+  const optionsRequestIdRef = useRef(0);
   const renderedCountRef = useRef(0);
   const prefetchCursorRef = useRef(null);
 
@@ -62,21 +63,52 @@ export default function WordPickerV2Page() {
     ? (total === null ? `全対象 - ${selection.excludedIds?.length ?? 0}` : Math.max(0, total - (selection.excludedIds?.length ?? 0)))
     : (selection.selectedIds?.length ?? 0);
 
-  const loadOptions = useCallback(async () => {
+  const loadOptions = useCallback(async (nextFilters = filters) => {
+    const requestId = optionsRequestIdRef.current + 1;
+    optionsRequestIdRef.current = requestId;
     setOptionsLoading(true);
     setOptionsError('');
+
+    const optionQuery = createQueryFromFilters(search, nextFilters);
+
     try {
-      const response = await fetch('/api/word-picker/options', { cache: 'no-store' });
+      const response = await fetch(`/api/word-picker/options?${buildQueryParams(optionQuery, '0', 1)}`, { cache: 'no-store' });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || '候補取得に失敗しました。');
-      setOptions({ ...emptyOptions, ...data });
+      if (optionsRequestIdRef.current !== requestId) return;
+
+      const nextOptions = { ...emptyOptions };
+      FILTER_KEYS.forEach((key) => {
+        nextOptions[key] = Array.isArray(data[key]) ? data[key] : [];
+      });
+      setOptions(nextOptions);
       setOptionsLoaded(true);
+      if (typeof data.total === 'number') setTotal(data.total);
+
+      setFilters((current) => {
+        let shouldClear = false;
+        const sanitized = { ...current };
+
+        FILTER_KEYS.forEach((key) => {
+          if (shouldClear) {
+            if (sanitized[key]) sanitized[key] = '';
+            return;
+          }
+
+          if (sanitized[key] && !nextOptions[key].includes(sanitized[key])) {
+            sanitized[key] = '';
+            shouldClear = true;
+          }
+        });
+
+        return shouldClear ? sanitized : current;
+      });
     } catch (error) {
-      setOptionsError(error.message || '候補取得に失敗しました。');
+      if (optionsRequestIdRef.current === requestId) setOptionsError(error.message || '候補取得に失敗しました。');
     } finally {
-      setOptionsLoading(false);
+      if (optionsRequestIdRef.current === requestId) setOptionsLoading(false);
     }
-  }, []);
+  }, [filters, search]);
 
   const loadCount = useCallback(async (requestId) => {
     setCountLoading(true);
@@ -137,6 +169,10 @@ export default function WordPickerV2Page() {
       }, 0);
     }
   }, [fetchWords, loadCount, nextCursor]);
+
+  useEffect(() => {
+    loadOptions(filters);
+  }, [filters]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setWords([]);
@@ -205,8 +241,8 @@ export default function WordPickerV2Page() {
         </label>
 
         <div>
-          <button type="button" onClick={loadOptions} disabled={optionsLoading}>{optionsLoaded ? 'カテゴリ候補を再読み込み' : 'カテゴリ候補を読み込む'}</button>
-          {optionsLoading && <span style={{ marginLeft: 8 }}>候補読み込み中...</span>}
+          <button type="button" onClick={() => loadOptions(filters)} disabled={optionsLoading}>{optionsLoaded ? 'カテゴリ候補を再読み込み' : 'カテゴリ候補を読み込む'}</button>
+          {optionsLoading && <span style={{ marginLeft: 8 }}>候補を更新中...</span>}
         </div>
 
         {optionsLoaded && (
@@ -214,9 +250,20 @@ export default function WordPickerV2Page() {
             {FILTER_KEYS.map((key) => (
               <label key={key}>
                 {FILTER_LABELS[key]}
-                <select value={filters[key] ?? ''} onChange={(event) => updateFilter(key, event.target.value)} style={{ display: 'block', width: '100%', padding: 8, marginTop: 4 }}>
-                  <option value="">すべて</option>
-                  {(options[key] ?? []).map((value) => <option key={value} value={value}>{value}</option>)}
+                <select
+                  value={filters[key] ?? ''}
+                  onChange={(event) => updateFilter(key, event.target.value)}
+                  disabled={(options[key] ?? []).length === 0}
+                  style={{ display: 'block', width: '100%', padding: 8, marginTop: 4 }}
+                >
+                  {(options[key] ?? []).length === 0 ? (
+                    <option value="">選択できる項目はありません</option>
+                  ) : (
+                    <>
+                      <option value="">すべて</option>
+                      {(options[key] ?? []).map((value) => <option key={value} value={value}>{value}</option>)}
+                    </>
+                  )}
                 </select>
               </label>
             ))}
@@ -227,7 +274,7 @@ export default function WordPickerV2Page() {
           <input type="checkbox" checked={Boolean(filters.importantOnly)} onChange={(event) => updateFilter('importantOnly', event.target.checked)} />
           重要単語のみ
         </label>
-        {optionsError && <p style={{ color: 'crimson' }}>候補エラー: {optionsError} <button onClick={loadOptions}>再試行</button></p>}
+        {optionsError && <p style={{ color: 'crimson' }}>候補エラー: {optionsError} <button onClick={() => loadOptions(filters)}>再試行</button></p>}
       </section>
 
       <section style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', margin: '16px 0' }}>
