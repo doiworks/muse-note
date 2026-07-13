@@ -390,9 +390,9 @@ const WordRow = memo(function WordRow({ word, selected, isImportant, onToggle, o
 export default function HomePage() {
   const router = useRouter();
   const [game, setGame] = useState(INITIAL_GAME);
-  const [openCategoryKey, setOpenCategoryKey] = useState('grade');
+  const [openCategoryKey, setOpenCategoryKey] = useState('');
   const [categorySearch, setCategorySearch] = useState({});
-  const [expandedCategoryKeys, setExpandedCategoryKeys] = useState({});
+  const [draggingCategoryKey, setDraggingCategoryKey] = useState('');
   const answerRef = useRef(null);
   const timersRef = useRef([]);
   const intervalRef = useRef(null);
@@ -403,7 +403,6 @@ export default function HomePage() {
   const v2OpenStartedAtRef = useRef(0);
   const categoryOptionsRequestIdRef = useRef(0);
   const categoryDragRef = useRef({ active: false, key: '', mode: 'add', processed: new Set() });
-  const categoryRowRefs = useRef({});
   const suppressCategoryChipClickRef = useRef(false);
   const currentWord = game.quizWords[game.currentIndex] || null;
   const totalElapsed = game.now && game.totalStart ? game.now - game.totalStart : 0;
@@ -443,15 +442,6 @@ export default function HomePage() {
   useEffect(() => {
     gameRef.current = game;
   }, [game]);
-
-  useEffect(() => {
-    if (!openCategoryKey) return;
-    const target = categoryRowRefs.current[openCategoryKey];
-    if (!target) return;
-    window.requestAnimationFrame(() => {
-      target.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    });
-  }, [openCategoryKey, game.categoryIndexLoaded]);
 
   useEffect(() => {
     function updateVoices() {
@@ -1408,7 +1398,7 @@ export default function HomePage() {
     const nextPanel = gameRef.current.pickerPanel === panel ? '' : panel;
     const nextDraftFilters = panel === 'category' && nextPanel === 'category' ? { ...gameRef.current.filters } : gameRef.current.draftFilters;
     if (nextPanel === 'category') {
-      setOpenCategoryKey('grade');
+      setOpenCategoryKey('');
       void loadCategoryOptions(nextDraftFilters);
     }
     setGame((prev) => ({
@@ -1530,9 +1520,8 @@ export default function HomePage() {
   function clearDraftCategoryFilters() {
     const nextFilters = { ...INITIAL_GAME.filters };
     setGame((prev) => ({ ...prev, draftFilters: nextFilters }));
-    setOpenCategoryKey('grade');
+    setOpenCategoryKey('');
     setCategorySearch({});
-    setExpandedCategoryKeys({});
   }
 
   function applyCategoryFilters() {
@@ -1627,7 +1616,9 @@ export default function HomePage() {
 
   function startCategoryDrag(event, key, value, selected) {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
+    event.preventDefault();
     categoryDragRef.current = { active: true, key, mode: selected ? 'remove' : 'add', processed: new Set() };
+    setDraggingCategoryKey(key);
     suppressCategoryChipClickRef.current = true;
     applyCategoryDragValue(key, value);
   }
@@ -1635,6 +1626,7 @@ export default function HomePage() {
   function moveCategoryDrag(event) {
     const dragState = categoryDragRef.current;
     if (!dragState.active) return;
+    event.preventDefault();
     const target = document.elementFromPoint(event.clientX, event.clientY)?.closest?.('[data-category-chip-value]');
     if (!target || target.dataset.categoryChipKey !== dragState.key) return;
     applyCategoryDragValue(dragState.key, target.dataset.categoryChipValue);
@@ -1642,6 +1634,7 @@ export default function HomePage() {
 
   function endCategoryDrag() {
     categoryDragRef.current = { active: false, key: '', mode: 'add', processed: new Set() };
+    setDraggingCategoryKey('');
     window.setTimeout(() => { suppressCategoryChipClickRef.current = false; }, 0);
   }
 
@@ -1653,9 +1646,6 @@ export default function HomePage() {
     setCategorySearch((prev) => ({ ...prev, [key]: value }));
   }
 
-  function showAllCategoryOptions(key) {
-    setExpandedCategoryKeys((prev) => ({ ...prev, [key]: true }));
-  }
 
   async function resolveAllMatchingSelection(sourceGame = gameRef.current) {
     const response = await fetch('/api/word-picker/resolve-selection', {
@@ -2046,68 +2036,13 @@ export default function HomePage() {
                       const selectedValues = normalizeFilterValues(game.draftFilters[key]);
                       const isOpen = openCategoryKey === key;
                       const isUnused = game.categoryIndexLoaded && options.length === 0;
-                      const query = categorySearch[key] || '';
-                      const filteredOptions = (() => {
-                        const normalizedQuery = normalizeText(query);
-                        if (!normalizedQuery) return options;
-                        return options.filter((option) => normalizeText(option.value).includes(normalizedQuery));
-                      })();
-                      const visibleOptions = expandedCategoryKeys[key] ? filteredOptions : filteredOptions.slice(0, CATEGORY_INITIAL_VISIBLE_COUNT);
-                      const hasMore = filteredOptions.length > visibleOptions.length;
                       return (
-                        <div className={`categoryAccordionItem ${isOpen ? 'open' : ''}`} key={key} ref={(node) => { if (node) categoryRowRefs.current[key] = node; }}>
-                          <button type="button" className={`categoryAccordionRow ${isOpen ? 'open' : ''} ${isUnused ? 'unused' : ''}`} onClick={() => setOpenCategoryKey(isOpen ? '' : key)} disabled={!game.categoryIndexLoaded && !isOpen} aria-expanded={isOpen} aria-controls={`category-panel-${key}`}>
+                        <div className={`categoryAccordionItem ${isOpen ? 'open' : ''}`} key={key}>
+                          <button type="button" className={`categoryAccordionRow ${isOpen ? 'open' : ''} ${isUnused ? 'unused' : ''}`} onClick={() => setOpenCategoryKey(key)} disabled={!game.categoryIndexLoaded} aria-expanded={isOpen} aria-controls={`category-sheet-${key}`}>
                             <span>{FILTER_LABELS[key] || key}</span>
-                            <strong>{selectedValues.length ? `${selectedValues.length}件選択中` : (isUnused ? '未使用' : '未選択')}</strong>
-                            <b aria-hidden="true">{isOpen ? '∧' : '∨'}</b>
+                            <strong>{selectedValues.length ? `${selectedValues.length}件` : (isUnused ? '未使用' : '未選択')}</strong>
+                            <b aria-hidden="true">›</b>
                           </button>
-                          {isOpen && (
-                            <section id={`category-panel-${key}`} className="openCategoryPanel inlineCategoryPanel" aria-label={`${FILTER_LABELS[key] || key}の候補`}>
-                              <div className="openCategoryPanelHeader">
-                                <div>
-                                  <h4>{FILTER_LABELS[key] || key}</h4>
-                                  <small>{selectedValues.length ? `${selectedValues.length}件選択中` : '未選択'}</small>
-                                </div>
-                                {options.length > CATEGORY_INITIAL_VISIBLE_COUNT && (
-                                  <input className="categoryOptionSearch" value={query} onChange={(event) => updateCategorySearch(key, event.target.value)} placeholder="候補を検索" aria-label={`${FILTER_LABELS[key] || key}の候補を検索`} />
-                                )}
-                              </div>
-                              {game.categoryIndexLoaded && options.length === 0 ? (
-                                <p className="filterUnusedText compactUnused">未使用</p>
-                              ) : (
-                                <div className="optionChipList openOptionChipList" onPointerMove={moveCategoryDrag} onPointerUp={endCategoryDrag} onPointerCancel={endCategoryDrag} onPointerLeave={endCategoryDrag}>
-                                  {visibleOptions.map((option) => {
-                                    const selected = selectedValues.includes(option.value);
-                                    return (
-                                      <button
-                                        type="button"
-                                        className={`optionChip dragOptionChip ${selected ? 'active' : ''}`}
-                                        key={option.value}
-                                        data-category-chip-key={key}
-                                        data-category-chip-value={option.value}
-                                        disabled={!game.categoryIndexLoaded}
-                                        onPointerDown={(event) => startCategoryDrag(event, key, option.value, selected)}
-                                        onPointerEnter={() => applyCategoryDragValue(key, option.value)}
-                                        onPointerUp={endCategoryDrag}
-                                        onPointerCancel={endCategoryDrag}
-                                        onClick={(event) => {
-                                          if (suppressCategoryChipClickRef.current) {
-                                            event.preventDefault();
-                                            suppressCategoryChipClickRef.current = false;
-                                            return;
-                                          }
-                                          toggleDraftFilterValue(key, option.value);
-                                        }}
-                                      >
-                                        <span>{selected ? `✓ ${option.value}` : option.value}</span>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                              {hasMore && <button type="button" className="showMoreCategoryBtn" onClick={() => showAllCategoryOptions(key)}>もっと見る</button>}
-                            </section>
-                          )}
                         </div>
                       );
                     })}
@@ -2124,6 +2059,66 @@ export default function HomePage() {
                     <button type="button" className="retryBtn primary compact" onClick={applyCategoryFilters}>適用</button>
                   </div>
                 </section>
+                {openCategoryKey && (() => {
+                  const key = openCategoryKey;
+                  const options = categoryState.options[key] || [];
+                  const selectedValues = normalizeFilterValues(game.draftFilters[key]);
+                  const query = categorySearch[key] || '';
+                  const normalizedQuery = normalizeText(query);
+                  const filteredOptions = normalizedQuery ? options.filter((option) => normalizeText(option.value).includes(normalizedQuery)) : options;
+                  return (
+                    <section id={`category-sheet-${key}`} className="categoryChoiceSheet" role="dialog" aria-modal="true" aria-label={`${FILTER_LABELS[key] || key}の候補`}>
+                      <div className="choiceSheetHandle" aria-hidden="true" />
+                      <div className="choiceSheetHeader">
+                        <div>
+                          <h4>{FILTER_LABELS[key] || key}</h4>
+                          <small>{selectedValues.length ? `${selectedValues.length}件選択中` : '未選択'}</small>
+                        </div>
+                        <button type="button" className="panelCloseButton" onClick={() => setOpenCategoryKey('')} aria-label="候補を閉じる">×</button>
+                      </div>
+                      {options.length > CATEGORY_INITIAL_VISIBLE_COUNT && (
+                        <input className="categoryOptionSearch" value={query} onChange={(event) => updateCategorySearch(key, event.target.value)} placeholder="候補を検索" aria-label={`${FILTER_LABELS[key] || key}の候補を検索`} />
+                      )}
+                      {game.categoryIndexLoaded && options.length === 0 ? (
+                        <p className="filterUnusedText compactUnused">未使用</p>
+                      ) : (
+                        <div className={`optionChipList openOptionChipList ${draggingCategoryKey === key ? 'dragging' : ''}`} onPointerMove={moveCategoryDrag} onPointerUp={endCategoryDrag} onPointerCancel={endCategoryDrag} onPointerLeave={endCategoryDrag}>
+                          {filteredOptions.map((option) => {
+                            const selected = selectedValues.includes(option.value);
+                            return (
+                              <button
+                                type="button"
+                                className={`optionChip dragOptionChip ${selected ? 'active' : ''}`}
+                                key={option.value}
+                                data-category-chip-key={key}
+                                data-category-chip-value={option.value}
+                                disabled={!game.categoryIndexLoaded}
+                                onPointerDown={(event) => startCategoryDrag(event, key, option.value, selected)}
+                                onPointerEnter={() => applyCategoryDragValue(key, option.value)}
+                                onPointerUp={endCategoryDrag}
+                                onPointerCancel={endCategoryDrag}
+                                onClick={(event) => {
+                                  if (suppressCategoryChipClickRef.current) {
+                                    event.preventDefault();
+                                    suppressCategoryChipClickRef.current = false;
+                                    return;
+                                  }
+                                  toggleDraftFilterValue(key, option.value);
+                                }}
+                              >
+                                <span>{selected ? `✓ ${option.value}` : option.value}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                      <div className="choiceSheetActions">
+                        <button type="button" className="retryBtn secondaryAction compact" onClick={() => setDraftFilterValue(key, [])}>この項目をクリア</button>
+                        <button type="button" className="retryBtn primary compact" onClick={() => setOpenCategoryKey('')}>完了</button>
+                      </div>
+                    </section>
+                  );
+                })()}
               </div>
             )}
 
@@ -3503,96 +3498,125 @@ export default function HomePage() {
         }
         .categoryAccordionItem {
           display: grid;
-          gap: 0;
           border-radius: 18px;
         }
-        .categoryAccordionItem.open {
-          gap: 8px;
-        }
         .categoryAccordionRow {
-          min-height: 48px;
+          min-height: 52px;
           display: grid;
           grid-template-columns: 1fr auto auto;
           align-items: center;
           gap: 10px;
           width: 100%;
           border: 1px solid #e0ebf8;
-          border-radius: 14px;
+          border-radius: 16px;
           background: #ffffff;
           color: #315d91;
-          padding: 0.72em 0.85em;
+          padding: 0.78em 0.9em;
           text-align: left;
           font-weight: 900;
           cursor: pointer;
+          box-shadow: 0 8px 20px rgba(62, 105, 151, 0.08);
         }
         .categoryAccordionRow.open {
           border-color: #83bff2;
           background: linear-gradient(135deg, #eef8ff 0%, #f8fcff 100%);
-          box-shadow: 0 8px 20px rgba(47, 142, 216, 0.12);
+          box-shadow: 0 10px 24px rgba(47, 142, 216, 0.15);
         }
         .categoryAccordionRow.unused { color: #8aa0bb; }
         .categoryAccordionRow strong {
-          color: #6f89aa;
+          border-radius: 999px;
+          background: #eef6ff;
+          color: #527195;
           font-size: 0.78rem;
+          padding: 0.34em 0.65em;
           white-space: nowrap;
         }
-        .categoryAccordionRow.open strong { color: #236aa8; }
+        .categoryAccordionRow.open strong {
+          background: #dff0ff;
+          color: #236aa8;
+        }
+        .categoryAccordionRow b {
+          color: #88a2c1;
+          font-size: 1.25rem;
+          line-height: 1;
+        }
         .importantChipRow {
           justify-content: center;
           min-height: 44px;
           border-radius: 14px;
         }
-        .openCategoryPanel {
+        .categoryChoiceSheet {
+          position: fixed;
+          left: 50%;
+          bottom: max(10px, env(safe-area-inset-bottom));
+          z-index: 1004;
+          width: min(720px, calc(100vw - 20px));
+          max-height: min(72vh, 620px);
           display: grid;
-          gap: 10px;
-          border: 1px solid #d8e7f8;
-          border-radius: 18px;
-          background: #fbfdff;
-          padding: 12px;
+          grid-template-rows: auto auto minmax(0, 1fr) auto;
+          gap: 12px;
+          border: 1px solid #c8dcf4;
+          border-radius: 26px 26px 22px 22px;
+          background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, #f7fbff 100%);
+          box-shadow: 0 -18px 60px rgba(24, 58, 99, 0.26);
+          padding: 10px 14px 14px;
+          transform: translateX(-50%);
         }
-        .inlineCategoryPanel {
-          margin: 0 2px 4px;
-          border-color: #cfe3f8;
-          background: linear-gradient(180deg, #f7fbff 0%, #eef7ff 100%);
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+        .choiceSheetHandle {
+          width: 42px;
+          height: 5px;
+          justify-self: center;
+          border-radius: 999px;
+          background: #c9d8ea;
         }
-        .openCategoryPanelHeader {
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) minmax(120px, 190px);
+        .choiceSheetHeader {
+          display: flex;
           align-items: center;
-          gap: 10px;
+          justify-content: space-between;
+          gap: 12px;
         }
-        .openCategoryPanelHeader h4 {
+        .choiceSheetHeader h4 {
           margin: 0;
           color: #315d91;
-          font-size: 0.95rem;
+          font-size: 1rem;
         }
-        .openCategoryPanelHeader small {
+        .choiceSheetHeader small {
           color: #7890ad;
           font-weight: 900;
         }
         .categoryOptionSearch {
-          min-height: 38px;
+          min-height: 40px;
           border: 1px solid #cfe0f5;
           border-radius: 999px;
           background: #ffffff;
           color: #315d91;
-          padding: 0 0.9em;
+          padding: 0 0.95em;
           font-weight: 800;
           min-width: 0;
         }
         .openOptionChipList {
-          max-height: min(34vh, 260px);
+          align-content: start;
+          max-height: none;
+          min-height: 88px;
           overflow: auto;
-          padding: 2px;
+          padding: 2px 2px 8px;
           touch-action: pan-y;
           overscroll-behavior: contain;
+        }
+        .openOptionChipList.dragging {
+          touch-action: none;
           user-select: none;
         }
         .openOptionChipList .optionChip {
-          min-height: 44px;
-          padding: 0.65em 1em;
-          font-size: 0.88rem;
+          min-height: 46px;
+          padding: 0.68em 1em;
+          font-size: 0.9rem;
+        }
+        .optionChip.active {
+          border-color: #61a9e8;
+          background: linear-gradient(135deg, #e5f4ff 0%, #f5fbff 100%);
+          color: #1969aa;
+          box-shadow: inset 0 0 0 1px rgba(63, 142, 215, 0.18);
         }
         .dragOptionChip {
           -webkit-tap-highlight-color: transparent;
@@ -3609,14 +3633,11 @@ export default function HomePage() {
           transform: scale(0.98);
           box-shadow: 0 4px 12px rgba(47, 142, 216, 0.18);
         }
-        .showMoreCategoryBtn {
-          min-height: 40px;
-          border: 1px solid #cfe0f5;
-          border-radius: 12px;
-          background: #ffffff;
-          color: #236aa8;
-          font-weight: 900;
-          cursor: pointer;
+        .choiceSheetActions {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+          padding-top: 2px;
         }
         .compactUnused {
           margin: 0;
