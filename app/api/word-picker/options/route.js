@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { PREVIEW_SESSION_COOKIE_NAME, verifyPreviewSessionCookieValue } from '../../../../lib/auth/previewSession';
-import { applyWordPickerFilters } from '../list/route';
 
 const OPTION_COLUMNS = ['school_level', 'grade', 'term', 'exam_type', 'category1', 'category2', 'category3'];
 const OPTION_PAGE_SIZE = 1000;
@@ -14,18 +13,54 @@ function emptyOptions() {
   return Object.fromEntries(OPTION_COLUMNS.map((key) => [key, []]));
 }
 
+function hasValue(value) {
+  return value !== null && value !== undefined && String(value).trim() !== '';
+}
+
+function normalizeSearch(value) {
+  return String(value || '').normalize('NFKC').trim();
+}
+
+function isJapaneseSearch(search) {
+  return /[^\x00-\x7F]/.test(search);
+}
+
+function escapeLike(value) {
+  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+
+function applyOptionFilters(query, params) {
+  OPTION_COLUMNS.forEach((key) => {
+    const value = typeof params.get === 'function' ? params.get(key) : params[key];
+    if (hasValue(value)) query = query.eq(key, value);
+  });
+
+  const importantOnly = typeof params.get === 'function' ? params.get('importantOnly') : params.importantOnly;
+  if (importantOnly === true || importantOnly === 'true' || importantOnly === '1') {
+    query = query.eq('importance', 1);
+  }
+
+  const search = normalizeSearch(typeof params.get === 'function' ? params.get('search') : params.search);
+  if (search) {
+    const column = isJapaneseSearch(search) ? 'japanese' : 'english';
+    query = query.ilike(column, `%${escapeLike(search)}%`);
+  }
+
+  return query;
+}
+
 function createScopedParams(searchParams, targetColumn) {
   const params = new URLSearchParams();
   const targetIndex = OPTION_COLUMNS.indexOf(targetColumn);
 
   OPTION_COLUMNS.slice(0, targetIndex).forEach((key) => {
     const value = searchParams.get(key);
-    if (value) params.set(key, value);
+    if (hasValue(value)) params.set(key, value);
   });
 
   ['importantOnly', 'search'].forEach((key) => {
     const value = searchParams.get(key);
-    if (value) params.set(key, value);
+    if (hasValue(value)) params.set(key, value);
   });
 
   return params;
@@ -38,12 +73,11 @@ async function fetchOptionsForColumn(supabaseAdmin, searchParams, column) {
   let hasMore = true;
 
   while (hasMore) {
-    const { data, error } = await applyWordPickerFilters(
+    const { data, error } = await applyOptionFilters(
       supabaseAdmin.from('words').select(column),
       scopedParams
     )
       .not(column, 'is', null)
-      .neq(column, '')
       .order(column, { ascending: true })
       .range(offset, offset + OPTION_PAGE_SIZE - 1);
 
@@ -51,7 +85,8 @@ async function fetchOptionsForColumn(supabaseAdmin, searchParams, column) {
 
     const rows = data ?? [];
     rows.forEach((row) => {
-      if (row[column]) values.add(row[column]);
+      const value = row[column];
+      if (hasValue(value)) values.add(String(value));
     });
     hasMore = rows.length === OPTION_PAGE_SIZE;
     offset += OPTION_PAGE_SIZE;
@@ -63,7 +98,7 @@ async function fetchOptionsForColumn(supabaseAdmin, searchParams, column) {
 }
 
 async function fetchTotal(supabaseAdmin, searchParams) {
-  const { count, error } = await applyWordPickerFilters(
+  const { count, error } = await applyOptionFilters(
     supabaseAdmin.from('words').select('id', { count: 'exact', head: true }),
     searchParams
   );
