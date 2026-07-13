@@ -95,6 +95,7 @@ const INITIAL_GAME = {
   categoryOptionsLoaded: false,
   categoryOptionsLoading: false,
   categoryOptionsError: '',
+  categoryOptionsTotal: null,
   filters: {
     school_level: '',
     grade: '',
@@ -206,7 +207,7 @@ function DiffText({ answer, correct }) {
 
 const FILTER_KEYS = ['school_level', 'grade', 'term', 'exam_type', 'category1', 'category2', 'category3'];
 const FILTER_LABELS = {
-  school_level: '学校種',
+  school_level: '学校区分',
   grade: '学年',
   term: '学期',
   exam_type: 'テスト',
@@ -237,7 +238,10 @@ function clearLowerDraftFilters(filters, changedKey) {
 }
 
 function normalizeCategoryOptions(options = {}) {
-  return Object.fromEntries(FILTER_KEYS.map((key) => [key, Array.isArray(options[key]) ? options[key] : []]));
+  return {
+    ...Object.fromEntries(FILTER_KEYS.map((key) => [key, Array.isArray(options[key]) ? options[key] : []])),
+    total: Number.isFinite(Number(options.total)) ? Number(options.total) : null
+  };
 }
 
 function hasAnyCategoryOptions(options = {}) {
@@ -1433,6 +1437,7 @@ export default function HomePage() {
         return {
           ...prev,
           categoryOptions,
+          categoryOptionsTotal: categoryOptions.total,
           draftFilters: sanitizeDraftFiltersByOptions(prev.draftFilters, categoryOptions),
           categoryOptionsLoaded: true,
           categoryOptionsLoading: false,
@@ -1445,10 +1450,18 @@ export default function HomePage() {
         return {
           ...prev,
           categoryOptionsLoading: false,
+          categoryOptionsTotal: null,
           categoryOptionsError: error.message || 'カテゴリ候補の取得に失敗しました。'
         };
       });
     }
+  }
+
+
+  function clearDraftCategoryFilters() {
+    const nextFilters = { ...INITIAL_GAME.filters };
+    setGame((prev) => ({ ...prev, draftFilters: nextFilters }));
+    void loadCategoryOptions(nextFilters);
   }
 
   function applyCategoryFilters() {
@@ -1835,7 +1848,7 @@ export default function HomePage() {
           <div className="wordPickerShell">
             <header className="wordPickerHeader compactHeader">
               <h2>単語を選ぶ</h2>
-              <button type="button" className="pickerCloseBtn" onClick={() => setGame((prev) => ({ ...prev, isWordPickerOpen: false, pickerPanel: '' }))}>閉じる</button>
+              <button type="button" className="pickerCloseBtn" onClick={() => setGame((prev) => ({ ...prev, isWordPickerOpen: false, pickerPanel: '' }))} aria-label="単語選択を閉じる">×</button>
             </header>
 
             <section className="pickerControlPanel simplePickerControls" aria-label="検索と操作">
@@ -1868,7 +1881,9 @@ export default function HomePage() {
                 <button type="button" className="pickerActionBtn" onClick={() => openPickerPanel('open')}>開く</button>
               </div>
               <div className="pickerResultCount" aria-live="polite">
-                <span>表示中{game.v2Words.length}語{game.v2Total !== null ? ` / 対象${game.v2Total}語` : ''}</span>
+                <span>表示中：{game.v2Words.length}件</span>
+                <span>対象：{game.v2Total !== null ? game.v2Total : '-'}件</span>
+                <span>選択中：{selectedCount}語</span>
                 {game.selectionMode === 'allMatching' && <span>条件内を全件選択中（除外{game.excludedWordIds.length}語）</span>}
                 {game.v2CacheNotice && <span className="cacheNotice">{game.v2CacheNotice}</span>}
               </div>
@@ -1880,12 +1895,17 @@ export default function HomePage() {
                 <section className="pickerPopoverPanel categoryPanel" role="dialog" aria-modal="true" aria-label="カテゴリ選択">
                   <div className="panelTitleRow">
                     <div>
-                      <p className="panelEyebrow">Filter</p>
                       <h3>カテゴリを選ぶ</h3>
                     </div>
-                    <button type="button" className="panelCloseButton" onClick={closeWordPickerPanel}>閉じる</button>
+                    <button type="button" className="panelCloseButton" onClick={closeWordPickerPanel} aria-label="カテゴリ選択を閉じる">×</button>
                   </div>
-                  {game.categoryOptionsLoading && <p className="wordListHint">カテゴリ候補を読み込み中です...</p>}
+                  <div className="categoryDraftTotal" aria-live="polite">
+                    {game.categoryOptionsLoading ? (
+                      <span>候補を更新中...</span>
+                    ) : (
+                      <span>この条件で表示できる単語：<strong>{game.categoryOptionsTotal ?? 0}</strong>件</span>
+                    )}
+                  </div>
                   {game.categoryOptionsError && <p className="wordSetMessage error">{game.categoryOptionsError}</p>}
                   <div className="filterGrid categoryFilterGrid">
                     {FILTER_KEYS.map((key) => {
@@ -1915,19 +1935,13 @@ export default function HomePage() {
                       <input type="checkbox" checked={game.draftFilters.importantOnly} onChange={(event) => setDraftFilterValue('importantOnly', event.target.checked)} />
                       <span>重要のみ</span>
                     </label>
-                    <label className={`pillCheck filterToggleField ${game.draftFilters.selectedOnly ? 'active' : ''} ${selectedOnlyDisabled ? 'disabled' : ''}`}>
-                      <input type="checkbox" checked={game.draftFilters.selectedOnly} disabled={selectedOnlyDisabled} onChange={(event) => setDraftFilterValue('selectedOnly', event.target.checked)} />
-                      <span>選択済みだけ表示</span>
-                    </label>
                   </div>
                   {game.categoryOptionsLoaded && !hasAnyCategoryOptions(game.categoryOptions) && (
                     <p className="wordListHint">カテゴリ項目は未使用です</p>
                   )}
-                  {selectedOnlyDisabled && <p className="wordListHint">まだ選択された単語はありません</p>}
-                  <div className="panelActions">
+                  <div className="panelActions categoryPanelActions">
+                    <button type="button" className="retryBtn secondaryAction compact" onClick={clearDraftCategoryFilters}>クリア</button>
                     <button type="button" className="retryBtn primary compact" onClick={applyCategoryFilters}>適用</button>
-                    <button type="button" className="retryBtn secondaryAction compact" onClick={clearFilters}>クリア</button>
-                    <button type="button" className="retryBtn tertiary compact" onClick={closeWordPickerPanel}>閉じる</button>
                   </div>
                 </section>
               </div>
@@ -2011,7 +2025,6 @@ export default function HomePage() {
                   <div className="panelActions splitActions">
                     <span>{filteredWordSets.length}件表示</span>
                     <button type="button" className="retryBtn primary compact" onClick={() => void handleApplyWordSets()} disabled={!game.pendingWordSetIds.length}>適用</button>
-                    <button type="button" className="retryBtn tertiary compact" onClick={closeWordPickerPanel}>閉じる</button>
                   </div>
                   {game.wordSetMessage && <p className={`wordSetMessage ${game.wordSetMessageType === 'error' ? 'error' : 'success'}`}>{game.wordSetMessage}</p>}
                 </section>
@@ -3545,6 +3558,44 @@ export default function HomePage() {
           gap: 8px;
         }
 
+
+        .pickerCloseBtn,
+        .panelCloseButton {
+          width: 42px;
+          height: 42px;
+          min-width: 42px;
+          padding: 0;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 1.35rem;
+          line-height: 1;
+        }
+        .categoryDraftTotal {
+          min-height: 46px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border: 1px solid #cfe2ff;
+          border-radius: 16px;
+          background: linear-gradient(180deg, #eef7ff 0%, #f8fbff 100%);
+          color: #42658d;
+          font-size: 0.95rem;
+          font-weight: 800;
+          padding: 0.65em 0.9em;
+        }
+        .categoryDraftTotal strong {
+          color: #1f6fb2;
+          font-size: 1.15em;
+        }
+        .categoryPanelActions {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+        }
+        .categoryPanelActions .retryBtn {
+          min-height: 44px;
+        }
+
         @media (max-width: 780px) {
           .pickerHeaderActions {
             justify-content: flex-end;
@@ -3555,6 +3606,7 @@ export default function HomePage() {
           .pickerPrimaryActions {
             display: grid;
             grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 6px;
           }
           .pickerActionBtn {
             padding: 0.58em 0.45em;
