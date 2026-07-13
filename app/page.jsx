@@ -240,6 +240,10 @@ function normalizeCategoryOptions(options = {}) {
   return Object.fromEntries(FILTER_KEYS.map((key) => [key, Array.isArray(options[key]) ? options[key] : []]));
 }
 
+function hasAnyCategoryOptions(options = {}) {
+  return FILTER_KEYS.some((key) => Array.isArray(options[key]) && options[key].length > 0);
+}
+
 function sanitizeDraftFiltersByOptions(filters = {}, options = {}) {
   const nextFilters = { ...filters };
   FILTER_KEYS.forEach((key) => {
@@ -1886,19 +1890,24 @@ export default function HomePage() {
                   <div className="filterGrid categoryFilterGrid">
                     {FILTER_KEYS.map((key) => {
                       const options = game.categoryOptions[key] || [];
-                      const isDisabled = game.categoryOptionsLoading || options.length === 0;
+                      const isUnused = game.categoryOptionsLoaded && options.length === 0;
+                      const isDisabled = game.categoryOptionsLoading || !game.categoryOptionsLoaded || isUnused;
                       return (
                         <label key={key} className="filterField">
                           <span>{FILTER_LABELS[key] || key}</span>
-                          <select
-                            className="filterSelect"
-                            value={game.draftFilters[key]}
-                            disabled={isDisabled}
-                            onChange={(event) => setDraftFilterValue(key, event.target.value)}
-                          >
-                            <option value="">{options.length ? '指定なし' : '選択できる項目はありません'}</option>
-                            {options.map((value) => <option key={value} value={value}>{value}</option>)}
-                          </select>
+                          {isUnused ? (
+                            <span className="filterUnusedText" aria-label={`${FILTER_LABELS[key] || key}は未使用です`}>未使用</span>
+                          ) : (
+                            <select
+                              className="filterSelect"
+                              value={game.draftFilters[key]}
+                              disabled={isDisabled}
+                              onChange={(event) => setDraftFilterValue(key, event.target.value)}
+                            >
+                              <option value="">{game.categoryOptionsLoaded ? '指定なし' : '読み込み中'}</option>
+                              {options.map((value) => <option key={value} value={value}>{value}</option>)}
+                            </select>
+                          )}
                         </label>
                       );
                     })}
@@ -1911,6 +1920,9 @@ export default function HomePage() {
                       <span>選択済みだけ表示</span>
                     </label>
                   </div>
+                  {game.categoryOptionsLoaded && !hasAnyCategoryOptions(game.categoryOptions) && (
+                    <p className="wordListHint">カテゴリ項目は未使用です</p>
+                  )}
                   {selectedOnlyDisabled && <p className="wordListHint">まだ選択された単語はありません</p>}
                   <div className="panelActions">
                     <button type="button" className="retryBtn primary compact" onClick={applyCategoryFilters}>適用</button>
@@ -3248,6 +3260,18 @@ export default function HomePage() {
           border-radius: 12px;
           padding: 0 0.85em;
           background: #ffffff;
+        }
+        .filterUnusedText {
+          display: inline-flex;
+          align-items: center;
+          min-height: 32px;
+          width: fit-content;
+          border-radius: 999px;
+          padding: 0.25em 0.75em;
+          background: #f3f7fb;
+          color: #8aa0bb;
+          font-size: 0.72rem;
+          font-weight: 800;
         }
         .filterToggleField {
           min-height: 44px;
