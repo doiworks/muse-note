@@ -393,6 +393,7 @@ export default function HomePage() {
   const [openCategoryKey, setOpenCategoryKey] = useState('');
   const [categorySearch, setCategorySearch] = useState({});
   const [draggingCategoryKey, setDraggingCategoryKey] = useState('');
+  const [categoryVisibleCounts, setCategoryVisibleCounts] = useState({});
   const answerRef = useRef(null);
   const timersRef = useRef([]);
   const intervalRef = useRef(null);
@@ -402,8 +403,7 @@ export default function HomePage() {
   const v2PrefetchRef = useRef({ key: '', promise: null, data: null });
   const v2OpenStartedAtRef = useRef(0);
   const categoryOptionsRequestIdRef = useRef(0);
-  const categoryDragRef = useRef({ active: false, key: '', mode: 'add', processed: new Set() });
-  const suppressCategoryChipClickRef = useRef(false);
+  const categoryDragRef = useRef({ active: false, pending: false, key: '', value: '', mode: 'add', startX: 0, startY: 0, pointerId: null, processed: new Set() });
   const currentWord = game.quizWords[game.currentIndex] || null;
   const totalElapsed = game.now && game.totalStart ? game.now - game.totalStart : 0;
   const questionElapsed = game.now && game.questionStart ? game.now - game.questionStart : 0;
@@ -1522,6 +1522,7 @@ export default function HomePage() {
     setGame((prev) => ({ ...prev, draftFilters: nextFilters }));
     setOpenCategoryKey('');
     setCategorySearch({});
+    setCategoryVisibleCounts({});
   }
 
   function applyCategoryFilters() {
@@ -1614,28 +1615,50 @@ export default function HomePage() {
     updateDraftFilterValue(key, value, dragState.mode);
   }
 
-  function startCategoryDrag(event, key, value, selected) {
+  function startCategoryPointer(event, key, value, selected) {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
-    event.preventDefault();
-    categoryDragRef.current = { active: true, key, mode: selected ? 'remove' : 'add', processed: new Set() };
-    setDraggingCategoryKey(key);
-    suppressCategoryChipClickRef.current = true;
-    applyCategoryDragValue(key, value);
+    categoryDragRef.current = {
+      active: false,
+      pending: true,
+      key,
+      value,
+      mode: selected ? 'remove' : 'add',
+      startX: event.clientX,
+      startY: event.clientY,
+      pointerId: event.pointerId,
+      processed: new Set()
+    };
   }
 
-  function moveCategoryDrag(event) {
+  function moveCategoryPointer(event) {
     const dragState = categoryDragRef.current;
-    if (!dragState.active) return;
+    if (!dragState.pending && !dragState.active) return;
+    if (dragState.pointerId !== null && event.pointerId !== dragState.pointerId) return;
+    const distance = Math.hypot(event.clientX - dragState.startX, event.clientY - dragState.startY);
+    if (!dragState.active && distance >= 8) {
+      categoryDragRef.current = { ...dragState, active: true, pending: false };
+      setDraggingCategoryKey(dragState.key);
+      applyCategoryDragValue(dragState.key, dragState.value);
+    }
+    if (!categoryDragRef.current.active) return;
     event.preventDefault();
     const target = document.elementFromPoint(event.clientX, event.clientY)?.closest?.('[data-category-chip-value]');
-    if (!target || target.dataset.categoryChipKey !== dragState.key) return;
-    applyCategoryDragValue(dragState.key, target.dataset.categoryChipValue);
+    if (!target || target.dataset.categoryChipKey !== categoryDragRef.current.key) return;
+    applyCategoryDragValue(categoryDragRef.current.key, target.dataset.categoryChipValue);
   }
 
-  function endCategoryDrag() {
-    categoryDragRef.current = { active: false, key: '', mode: 'add', processed: new Set() };
+  function endCategoryPointer(event) {
+    const dragState = categoryDragRef.current;
+    if (dragState.pointerId !== null && event?.pointerId !== undefined && event.pointerId !== dragState.pointerId) return;
+    if (dragState.pending && !dragState.active && dragState.key && dragState.value) {
+      updateDraftFilterValue(dragState.key, dragState.value, 'toggle');
+    }
+    categoryDragRef.current = { active: false, pending: false, key: '', value: '', mode: 'add', startX: 0, startY: 0, pointerId: null, processed: new Set() };
     setDraggingCategoryKey('');
-    window.setTimeout(() => { suppressCategoryChipClickRef.current = false; }, 0);
+  }
+
+  function showMoreCategoryOptions(key) {
+    setCategoryVisibleCounts((prev) => ({ ...prev, [key]: (prev[key] || CATEGORY_INITIAL_VISIBLE_COUNT) + CATEGORY_INITIAL_VISIBLE_COUNT }));
   }
 
   function removeDraftFilterValue(key, value) {
@@ -1644,6 +1667,7 @@ export default function HomePage() {
 
   function updateCategorySearch(key, value) {
     setCategorySearch((prev) => ({ ...prev, [key]: value }));
+    setCategoryVisibleCounts((prev) => ({ ...prev, [key]: CATEGORY_INITIAL_VISIBLE_COUNT }));
   }
 
 
@@ -2065,55 +2089,69 @@ export default function HomePage() {
                   const selectedValues = normalizeFilterValues(game.draftFilters[key]);
                   const query = categorySearch[key] || '';
                   const normalizedQuery = normalizeText(query);
-                  const filteredOptions = normalizedQuery ? options.filter((option) => normalizeText(option.value).includes(normalizedQuery)) : options;
+                  const selectedOptionItems = options.filter((option) => selectedValues.includes(option.value));
+                  const candidateOptions = options
+                    .filter((option) => !selectedValues.includes(option.value))
+                    .filter((option) => !normalizedQuery || normalizeText(option.value).includes(normalizedQuery))
+                    .sort((a, b) => (Number(b.count) || 0) - (Number(a.count) || 0) || a.value.localeCompare(b.value, 'ja', { numeric: true }));
+                  const visibleCount = categoryVisibleCounts[key] || CATEGORY_INITIAL_VISIBLE_COUNT;
+                  const visibleCandidateOptions = candidateOptions.slice(0, visibleCount);
+                  const hasMoreOptions = visibleCandidateOptions.length < candidateOptions.length;
                   return (
                     <section id={`category-sheet-${key}`} className="categoryChoiceSheet" role="dialog" aria-modal="true" aria-label={`${FILTER_LABELS[key] || key}の候補`}>
                       <div className="choiceSheetHandle" aria-hidden="true" />
                       <div className="choiceSheetHeader">
-                        <div>
-                          <h4>{FILTER_LABELS[key] || key}</h4>
-                          <small>{selectedValues.length ? `${selectedValues.length}件選択中` : '未選択'}</small>
-                        </div>
+                        <h4>{FILTER_LABELS[key] || key}</h4>
+                        <small>{selectedValues.length ? `${selectedValues.length}件選択中` : '未選択'}</small>
                         <button type="button" className="panelCloseButton" onClick={() => setOpenCategoryKey('')} aria-label="候補を閉じる">×</button>
                       </div>
-                      {options.length > CATEGORY_INITIAL_VISIBLE_COUNT && (
-                        <input className="categoryOptionSearch" value={query} onChange={(event) => updateCategorySearch(key, event.target.value)} placeholder="候補を検索" aria-label={`${FILTER_LABELS[key] || key}の候補を検索`} />
-                      )}
+                      <div className="choiceSheetFixedTop">
+                        {options.length > CATEGORY_INITIAL_VISIBLE_COUNT && (
+                          <input className="categoryOptionSearch" value={query} onChange={(event) => updateCategorySearch(key, event.target.value)} placeholder="候補を検索" aria-label={`${FILTER_LABELS[key] || key}の候補を検索`} />
+                        )}
+                        {selectedOptionItems.length > 0 && (
+                          <div className="choiceSheetSection" aria-label="選択中の候補">
+                            <span className="choiceSheetSectionTitle">選択中</span>
+                            <div className="optionChipList selectedOptionChipList">
+                              {selectedOptionItems.map((option) => (
+                                <button type="button" className="optionChip active selectedTopChip" key={option.value} onClick={() => toggleDraftFilterValue(key, option.value)}>
+                                  <span>✓ {option.value}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                       {game.categoryIndexLoaded && options.length === 0 ? (
                         <p className="filterUnusedText compactUnused">未使用</p>
                       ) : (
-                        <div className={`optionChipList openOptionChipList ${draggingCategoryKey === key ? 'dragging' : ''}`} onPointerMove={moveCategoryDrag} onPointerUp={endCategoryDrag} onPointerCancel={endCategoryDrag} onPointerLeave={endCategoryDrag}>
-                          {filteredOptions.map((option) => {
-                            const selected = selectedValues.includes(option.value);
-                            return (
-                              <button
-                                type="button"
-                                className={`optionChip dragOptionChip ${selected ? 'active' : ''}`}
-                                key={option.value}
-                                data-category-chip-key={key}
-                                data-category-chip-value={option.value}
-                                disabled={!game.categoryIndexLoaded}
-                                onPointerDown={(event) => startCategoryDrag(event, key, option.value, selected)}
-                                onPointerEnter={() => applyCategoryDragValue(key, option.value)}
-                                onPointerUp={endCategoryDrag}
-                                onPointerCancel={endCategoryDrag}
-                                onClick={(event) => {
-                                  if (suppressCategoryChipClickRef.current) {
-                                    event.preventDefault();
-                                    suppressCategoryChipClickRef.current = false;
-                                    return;
-                                  }
-                                  toggleDraftFilterValue(key, option.value);
-                                }}
-                              >
-                                <span>{selected ? `✓ ${option.value}` : option.value}</span>
-                              </button>
-                            );
-                          })}
+                        <div className={`choiceSheetScrollable ${draggingCategoryKey === key ? 'dragging' : ''}`} onPointerMove={moveCategoryPointer} onPointerUp={endCategoryPointer} onPointerCancel={endCategoryPointer} onPointerLeave={endCategoryPointer}>
+                          <span className="choiceSheetSectionTitle">候補</span>
+                          <div className="optionChipList openOptionChipList">
+                            {visibleCandidateOptions.map((option) => {
+                              const selected = selectedValues.includes(option.value);
+                              return (
+                                <button
+                                  type="button"
+                                  className={`optionChip dragOptionChip ${selected ? 'active' : ''}`}
+                                  key={option.value}
+                                  data-category-chip-key={key}
+                                  data-category-chip-value={option.value}
+                                  disabled={!game.categoryIndexLoaded}
+                                  onPointerDown={(event) => startCategoryPointer(event, key, option.value, selected)}
+                                  onClick={(event) => event.preventDefault()}
+                                >
+                                  <span>{selected ? `✓ ${option.value}` : option.value}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {hasMoreOptions && <button type="button" className="showMoreCategoryButton" onClick={() => showMoreCategoryOptions(key)}>もっと見る</button>}
+                          {candidateOptions.length === 0 && <p className="filterUnusedText compactUnused">該当する候補がありません</p>}
                         </div>
                       )}
                       <div className="choiceSheetActions">
-                        <button type="button" className="retryBtn secondaryAction compact" onClick={() => setDraftFilterValue(key, [])}>この項目をクリア</button>
+                        <button type="button" className="retryBtn secondaryAction compact" onClick={() => setDraftFilterValue(key, [])}>この項目を解除</button>
                         <button type="button" className="retryBtn primary compact" onClick={() => setOpenCategoryKey('')}>完了</button>
                       </div>
                     </section>
@@ -3553,8 +3591,8 @@ export default function HomePage() {
           width: min(720px, calc(100vw - 20px));
           max-height: min(72vh, 620px);
           display: grid;
-          grid-template-rows: auto auto minmax(0, 1fr) auto;
-          gap: 12px;
+          grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+          gap: 10px;
           border: 1px solid #c8dcf4;
           border-radius: 26px 26px 22px 22px;
           background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, #f7fbff 100%);
@@ -3570,10 +3608,10 @@ export default function HomePage() {
           background: #c9d8ea;
         }
         .choiceSheetHeader {
-          display: flex;
+          display: grid;
+          grid-template-columns: 1fr auto 40px;
           align-items: center;
-          justify-content: space-between;
-          gap: 12px;
+          gap: 10px;
         }
         .choiceSheetHeader h4 {
           margin: 0;
@@ -3584,8 +3622,24 @@ export default function HomePage() {
           color: #7890ad;
           font-weight: 900;
         }
+        .choiceSheetFixedTop {
+          display: grid;
+          gap: 10px;
+          min-width: 0;
+        }
+        .choiceSheetSection {
+          display: grid;
+          gap: 7px;
+          min-width: 0;
+        }
+        .choiceSheetSectionTitle {
+          color: #607b9d;
+          font-size: 0.78rem;
+          font-weight: 900;
+          letter-spacing: 0.03em;
+        }
         .categoryOptionSearch {
-          min-height: 40px;
+          min-height: 42px;
           border: 1px solid #cfe0f5;
           border-radius: 999px;
           background: #ffffff;
@@ -3594,22 +3648,33 @@ export default function HomePage() {
           font-weight: 800;
           min-width: 0;
         }
-        .openOptionChipList {
-          align-content: start;
-          max-height: none;
-          min-height: 88px;
+        .choiceSheetScrollable {
+          min-height: 0;
           overflow: auto;
-          padding: 2px 2px 8px;
+          display: grid;
+          align-content: start;
+          gap: 8px;
+          padding: 2px 2px 10px;
           touch-action: pan-y;
           overscroll-behavior: contain;
         }
-        .openOptionChipList.dragging {
+        .choiceSheetScrollable.dragging {
           touch-action: none;
           user-select: none;
         }
-        .openOptionChipList .optionChip {
-          min-height: 46px;
-          padding: 0.68em 1em;
+        .openOptionChipList,
+        .selectedOptionChipList {
+          align-content: start;
+          max-height: none;
+          min-height: 0;
+          overflow: visible;
+          padding: 0;
+          touch-action: inherit;
+        }
+        .openOptionChipList .optionChip,
+        .selectedOptionChipList .optionChip {
+          min-height: 42px;
+          padding: 0.64em 0.95em;
           font-size: 0.9rem;
         }
         .optionChip.active {
@@ -3618,6 +3683,7 @@ export default function HomePage() {
           color: #1969aa;
           box-shadow: inset 0 0 0 1px rgba(63, 142, 215, 0.18);
         }
+        .selectedTopChip,
         .dragOptionChip {
           -webkit-tap-highlight-color: transparent;
           touch-action: manipulation;
@@ -3633,11 +3699,25 @@ export default function HomePage() {
           transform: scale(0.98);
           box-shadow: 0 4px 12px rgba(47, 142, 216, 0.18);
         }
+        .showMoreCategoryButton {
+          min-height: 42px;
+          border: 1px dashed #9cc8ee;
+          border-radius: 14px;
+          background: #f4faff;
+          color: #2875b4;
+          font-weight: 900;
+          cursor: pointer;
+        }
         .choiceSheetActions {
           display: grid;
           grid-template-columns: 1fr 1fr;
           gap: 10px;
-          padding-top: 2px;
+          padding-top: 8px;
+          border-top: 1px solid #e3eefb;
+          background: linear-gradient(180deg, rgba(247,251,255,0.85), #f7fbff 45%);
+        }
+        .choiceSheetActions .retryBtn {
+          min-height: 44px;
         }
         .compactUnused {
           margin: 0;
