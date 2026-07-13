@@ -40,6 +40,7 @@ const MAX_FETCH_LIMIT = 500;
 const WORD_PICKER_PAGE_SIZE = 20;
 const WORD_PICKER_PREFETCH_SIZE = 30;
 const WORD_PICKER_CACHE_KEY = 'muse-note:word-picker-v2:first-page';
+const WORD_PICKER_CATEGORY_INDEX_CACHE_KEY = 'muse-note:word-picker-v2:category-index';
 
 const INITIAL_GAME = {
   screen: 'intro',
@@ -65,13 +66,13 @@ const INITIAL_GAME = {
   isWordPickerOpen: false,
   pickerPanel: '',
   draftFilters: {
-    school_level: '',
-    grade: '',
-    term: '',
-    exam_type: '',
-    category1: '',
-    category2: '',
-    category3: '',
+    school_level: [],
+    grade: [],
+    term: [],
+    exam_type: [],
+    category1: [],
+    category2: [],
+    category3: [],
     importantOnly: false,
     selectedOnly: false
   },
@@ -91,19 +92,21 @@ const INITIAL_GAME = {
   v2CacheNotice: '',
   v2Metrics: { source: '-', cacheMs: null, apiMs: null, renderMs: null, slow: '' },
   v2Total: null,
-  categoryOptions: {},
-  categoryOptionsLoaded: false,
-  categoryOptionsLoading: false,
-  categoryOptionsError: '',
-  categoryOptionsTotal: null,
+  categoryIndexRows: [],
+  categoryIndexVersion: '',
+  categoryIndexLoaded: false,
+  categoryIndexLoading: false,
+  categoryIndexRefreshing: false,
+  categoryIndexError: '',
+  categoryIndexCacheNotice: '',
   filters: {
-    school_level: '',
-    grade: '',
-    term: '',
-    exam_type: '',
-    category1: '',
-    category2: '',
-    category3: '',
+    school_level: [],
+    grade: [],
+    term: [],
+    exam_type: [],
+    category1: [],
+    category2: [],
+    category3: [],
     importantOnly: false,
     selectedOnly: false
   },
@@ -138,13 +141,13 @@ function isImportantWord(word) {
 
 function matchesWordFilters(word, filters, selectedWordIdSet) {
   return (
-    (!filters.school_level || String(word.school_level) === filters.school_level) &&
-    (!filters.grade || String(word.grade) === filters.grade) &&
-    (!filters.term || String(word.term) === filters.term) &&
-    (!filters.exam_type || String(word.exam_type) === filters.exam_type) &&
-    (!filters.category1 || String(word.category1) === filters.category1) &&
-    (!filters.category2 || String(word.category2) === filters.category2) &&
-    (!filters.category3 || String(word.category3) === filters.category3) &&
+    (!filterHasValues(filters.school_level) || normalizeFilterValues(filters.school_level).includes(String(word.school_level))) &&
+    (!filterHasValues(filters.grade) || normalizeFilterValues(filters.grade).includes(String(word.grade))) &&
+    (!filterHasValues(filters.term) || normalizeFilterValues(filters.term).includes(String(word.term))) &&
+    (!filterHasValues(filters.exam_type) || normalizeFilterValues(filters.exam_type).includes(String(word.exam_type))) &&
+    (!filterHasValues(filters.category1) || normalizeFilterValues(filters.category1).includes(String(word.category1))) &&
+    (!filterHasValues(filters.category2) || normalizeFilterValues(filters.category2).includes(String(word.category2))) &&
+    (!filterHasValues(filters.category3) || normalizeFilterValues(filters.category3).includes(String(word.category3))) &&
     (!filters.importantOnly || isImportantWord(word)) &&
     (!filters.selectedOnly || selectedWordIdSet.has(word.id))
   );
@@ -153,15 +156,15 @@ function matchesWordFilters(word, filters, selectedWordIdSet) {
 
 function getActiveFilterEntries(filters = {}) {
   return FILTER_KEYS
-    .filter((key) => hasValue(filters[key]))
-    .map((key) => ({ key, label: FILTER_LABELS[key] || key, value: filters[key] }))
+    .filter((key) => filterHasValues(filters[key]))
+    .flatMap((key) => normalizeFilterValues(filters[key]).map((value) => ({ key, label: FILTER_LABELS[key] || key, value })))
     .concat(filters.importantOnly ? [{ key: 'importantOnly', label: '重要', value: '重要のみ' }] : []);
 }
 
 function createSelectionQuery(search = '', filters = {}) {
   const query = { search: String(search || '').trim() };
   FILTER_KEYS.forEach((key) => {
-    if (hasValue(filters[key])) query[key] = filters[key];
+    if (filterHasValues(filters[key])) query[key] = normalizeFilterValues(filters[key]);
   });
   query.importantOnly = Boolean(filters.importantOnly);
   return query;
@@ -216,47 +219,55 @@ const FILTER_LABELS = {
   category3: 'カテゴリ3'
 };
 
-function createWordPickerOptionsParams(filters = {}, search = '') {
-  const params = new URLSearchParams();
-  FILTER_KEYS.forEach((key) => {
-    if (hasValue(filters[key])) params.set(key, filters[key]);
-  });
-  if (filters.importantOnly) params.set('importantOnly', '1');
-  if (String(search || '').trim()) params.set('search', String(search).trim());
-  return params;
+function normalizeFilterValues(value) {
+  const values = Array.isArray(value) ? value : String(value || '').split(',');
+  return [...new Set(values.map((item) => String(item).trim()).filter(Boolean))];
 }
 
-function clearLowerDraftFilters(filters, changedKey) {
-  const nextFilters = { ...filters };
-  const changedIndex = FILTER_KEYS.indexOf(changedKey);
-  if (changedIndex === -1) return nextFilters;
-
-  FILTER_KEYS.slice(changedIndex + 1).forEach((key) => {
-    nextFilters[key] = '';
-  });
-  return nextFilters;
+function filterHasValues(value) {
+  return normalizeFilterValues(value).length > 0;
 }
 
-function normalizeCategoryOptions(options = {}) {
-  return {
-    ...Object.fromEntries(FILTER_KEYS.map((key) => [key, Array.isArray(options[key]) ? options[key] : []])),
-    total: Number.isFinite(Number(options.total)) ? Number(options.total) : null
-  };
+function appendMultiValueParam(params, key, value) {
+  const values = normalizeFilterValues(value);
+  if (values.length) params.set(key, values.join(','));
+}
+
+function rowMatchesCategoryFilters(row, filters = {}, omitKey = '') {
+  if (filters.importantOnly && Number(row.importance) !== 1) return false;
+  return FILTER_KEYS.every((key) => {
+    if (key === omitKey) return true;
+    const values = normalizeFilterValues(filters[key]);
+    return values.length === 0 || values.includes(String(row[key] || ''));
+  });
+}
+
+function calculateCategoryState(rows = [], filters = {}) {
+  const optionsMap = Object.fromEntries(FILTER_KEYS.map((key) => [key, new Map()]));
+  let total = 0;
+
+  rows.forEach((row) => {
+    const count = Number(row.count) || 0;
+    if (rowMatchesCategoryFilters(row, filters)) total += count;
+    FILTER_KEYS.forEach((key) => {
+      if (!rowMatchesCategoryFilters(row, filters, key)) return;
+      const value = String(row[key] || '').trim();
+      if (!value) return;
+      optionsMap[key].set(value, (optionsMap[key].get(value) || 0) + count);
+    });
+  });
+
+  const options = Object.fromEntries(FILTER_KEYS.map((key) => [
+    key,
+    [...optionsMap[key].entries()]
+      .sort((a, b) => a[0].localeCompare(b[0], 'ja', { numeric: true }))
+      .map(([value, count]) => ({ value, count }))
+  ]));
+  return { options, total };
 }
 
 function hasAnyCategoryOptions(options = {}) {
   return FILTER_KEYS.some((key) => Array.isArray(options[key]) && options[key].length > 0);
-}
-
-function sanitizeDraftFiltersByOptions(filters = {}, options = {}) {
-  const nextFilters = { ...filters };
-  FILTER_KEYS.forEach((key) => {
-    const values = Array.isArray(options[key]) ? options[key].map(String) : [];
-    if (hasValue(nextFilters[key]) && !values.includes(String(nextFilters[key]))) {
-      nextFilters[key] = '';
-    }
-  });
-  return nextFilters;
 }
 
 const WordRow = memo(function WordRow({ word, selected, isImportant, onToggle, onSpeak }) {
@@ -401,6 +412,8 @@ export default function HomePage() {
   )), [keywordMatchedWords, game.filters, selectedWordIdSet]);
 
   const activeFilterCount = useMemo(() => getActiveFilterEntries(game.filters).length, [game.filters]);
+  const categoryState = useMemo(() => calculateCategoryState(game.categoryIndexRows, game.draftFilters), [game.categoryIndexRows, game.draftFilters]);
+  const draftFilterEntries = useMemo(() => getActiveFilterEntries(game.draftFilters), [game.draftFilters]);
   const selectedCount = game.selectionMode === 'allMatching'
     ? (game.v2Total === null ? 0 : Math.max(0, game.v2Total - game.excludedWordIds.length))
     : game.selectedWordIds.length;
@@ -727,14 +740,13 @@ export default function HomePage() {
 
   function appendV2FilterParams(params, filters = {}) {
     FILTER_KEYS.forEach((key) => {
-      const value = filters[key];
-      if (value) params.set(key, String(value));
+      appendMultiValueParam(params, key, filters[key]);
     });
     if (filters.importantOnly) params.set('importantOnly', 'true');
   }
 
   function hasV2FilterParams(filters = {}) {
-    return FILTER_KEYS.some((key) => Boolean(filters[key])) || Boolean(filters.importantOnly);
+    return FILTER_KEYS.some((key) => filterHasValues(filters[key])) || Boolean(filters.importantOnly);
   }
 
   function buildWordPickerListUrl({ search = '', cursor = '0', limit = WORD_PICKER_PAGE_SIZE, filters = {} } = {}) {
@@ -1419,49 +1431,82 @@ export default function HomePage() {
     void loadV2Words({ reset: true, search: gameRef.current.v2Search, filters: nextFilters });
   }
 
-  async function loadCategoryOptions(draftFilters = gameRef.current.draftFilters, search = gameRef.current.v2Search) {
-    const requestId = categoryOptionsRequestIdRef.current + 1;
-    categoryOptionsRequestIdRef.current = requestId;
-    const params = createWordPickerOptionsParams(draftFilters, search);
-    const queryString = params.toString();
-    const url = `/api/word-picker/options${queryString ? `?${queryString}` : ''}`;
-
-    setGame((prev) => ({ ...prev, categoryOptionsLoading: true, categoryOptionsError: '' }));
+  function readCategoryIndexCache() {
+    if (typeof window === 'undefined') return null;
     try {
-      const response = await fetch(url, { cache: 'no-store' });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || 'カテゴリ候補の取得に失敗しました。');
-      const categoryOptions = normalizeCategoryOptions(data || {});
-      setGame((prev) => {
-        if (categoryOptionsRequestIdRef.current !== requestId) return prev;
-        return {
-          ...prev,
-          categoryOptions,
-          categoryOptionsTotal: categoryOptions.total,
-          draftFilters: sanitizeDraftFiltersByOptions(prev.draftFilters, categoryOptions),
-          categoryOptionsLoaded: true,
-          categoryOptionsLoading: false,
-          categoryOptionsError: ''
-        };
-      });
-    } catch (error) {
-      setGame((prev) => {
-        if (categoryOptionsRequestIdRef.current !== requestId) return prev;
-        return {
-          ...prev,
-          categoryOptionsLoading: false,
-          categoryOptionsTotal: null,
-          categoryOptionsError: error.message || 'カテゴリ候補の取得に失敗しました。'
-        };
-      });
+      const cached = JSON.parse(window.localStorage.getItem(WORD_PICKER_CATEGORY_INDEX_CACHE_KEY) || 'null');
+      return Array.isArray(cached?.categoryRows) ? cached : null;
+    } catch {
+      return null;
     }
   }
 
+  function writeCategoryIndexCache(data) {
+    if (typeof window === 'undefined' || !Array.isArray(data?.categoryRows)) return;
+    try {
+      window.localStorage.setItem(WORD_PICKER_CATEGORY_INDEX_CACHE_KEY, JSON.stringify({ ...data, savedAt: Date.now() }));
+    } catch {
+      // Category index cache is an acceleration path; ignore storage failures.
+    }
+  }
+
+  async function loadCategoryOptions() {
+    if (gameRef.current.categoryIndexLoading || gameRef.current.categoryIndexRefreshing) return;
+    if (gameRef.current.categoryIndexLoaded && gameRef.current.categoryIndexRows.length) return;
+    const requestId = categoryOptionsRequestIdRef.current + 1;
+    categoryOptionsRequestIdRef.current = requestId;
+    const cached = readCategoryIndexCache();
+    if (cached?.categoryRows?.length) {
+      setGame((prev) => ({
+        ...prev,
+        categoryIndexRows: cached.categoryRows,
+        categoryIndexVersion: cached.version || cached.generatedAt || '',
+        categoryIndexLoaded: true,
+        categoryIndexRefreshing: true,
+        categoryIndexLoading: false,
+        categoryIndexError: '',
+        categoryIndexCacheNotice: '前回候補を表示中・更新確認中'
+      }));
+    } else {
+      setGame((prev) => ({ ...prev, categoryIndexLoading: true, categoryIndexError: '', categoryIndexCacheNotice: '' }));
+    }
+
+    try {
+      const response = await fetch('/api/word-picker/category-index', { cache: 'no-store' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'カテゴリ候補の取得に失敗しました。');
+      if (categoryOptionsRequestIdRef.current !== requestId) return;
+      writeCategoryIndexCache(data);
+      setGame((prev) => {
+        const nextVersion = data.version || data.generatedAt || '';
+        const sameVersion = prev.categoryIndexVersion && nextVersion && prev.categoryIndexVersion === nextVersion;
+        return {
+          ...prev,
+          categoryIndexRows: sameVersion && prev.categoryIndexRows.length ? prev.categoryIndexRows : (data.categoryRows || []),
+          categoryIndexVersion: nextVersion,
+          categoryIndexLoaded: true,
+          categoryIndexLoading: false,
+          categoryIndexRefreshing: false,
+          categoryIndexError: '',
+          categoryIndexCacheNotice: sameVersion ? '最新の候補です' : ''
+        };
+      });
+    } catch (error) {
+      if (categoryOptionsRequestIdRef.current !== requestId) return;
+      setGame((prev) => ({
+        ...prev,
+        categoryIndexLoading: false,
+        categoryIndexRefreshing: false,
+        categoryIndexError: cached?.categoryRows?.length ? '' : (error.message || 'カテゴリ候補の取得に失敗しました。'),
+        categoryIndexCacheNotice: cached?.categoryRows?.length ? '前回候補を表示中（更新確認に失敗しました）' : ''
+      }));
+    }
+  }
 
   function clearDraftCategoryFilters() {
     const nextFilters = { ...INITIAL_GAME.filters };
     setGame((prev) => ({ ...prev, draftFilters: nextFilters }));
-    void loadCategoryOptions(nextFilters);
+
   }
 
   function applyCategoryFilters() {
@@ -1528,14 +1573,19 @@ export default function HomePage() {
   function setDraftFilterValue(key, value) {
     const current = gameRef.current;
     if (key === 'selectedOnly' && value && current.selectedWordIds.length === 0) return;
+    setGame((prev) => ({ ...prev, draftFilters: { ...current.draftFilters, [key]: value } }));
+  }
 
-    const changedFilters = { ...current.draftFilters, [key]: value };
-    const nextDraftFilters = FILTER_KEYS.includes(key) ? clearLowerDraftFilters(changedFilters, key) : changedFilters;
-    setGame((prev) => ({ ...prev, draftFilters: nextDraftFilters }));
+  function toggleDraftFilterValue(key, value) {
+    const currentValues = normalizeFilterValues(gameRef.current.draftFilters[key]);
+    const nextValues = currentValues.includes(value)
+      ? currentValues.filter((item) => item !== value)
+      : [...currentValues, value];
+    setDraftFilterValue(key, nextValues);
+  }
 
-    if (key === 'importantOnly' || FILTER_KEYS.includes(key)) {
-      void loadCategoryOptions(nextDraftFilters);
-    }
+  function removeDraftFilterValue(key, value) {
+    setDraftFilterValue(key, normalizeFilterValues(gameRef.current.draftFilters[key]).filter((item) => item !== value));
   }
 
   async function resolveAllMatchingSelection(sourceGame = gameRef.current) {
@@ -1900,35 +1950,52 @@ export default function HomePage() {
                     <button type="button" className="panelCloseButton" onClick={closeWordPickerPanel} aria-label="カテゴリ選択を閉じる">×</button>
                   </div>
                   <div className="categoryDraftTotal" aria-live="polite">
-                    {game.categoryOptionsLoading ? (
-                      <span>候補を更新中...</span>
-                    ) : (
-                      <span>この条件で表示できる単語：<strong>{game.categoryOptionsTotal ?? 0}</strong>件</span>
+                    <span>この条件で表示できる単語：<strong>{categoryState.total}</strong>件</span>
+                    {(game.categoryIndexLoading || game.categoryIndexRefreshing || game.categoryIndexCacheNotice) && (
+                      <small>{game.categoryIndexCacheNotice || '候補を更新中...'}</small>
                     )}
                   </div>
-                  {game.categoryOptionsError && <p className="wordSetMessage error">{game.categoryOptionsError}</p>}
-                  <div className="filterGrid categoryFilterGrid">
+                  {game.categoryIndexError && <p className="wordSetMessage error">{game.categoryIndexError}</p>}
+                  {draftFilterEntries.length > 0 && (
+                    <div className="selectedFilterChips" aria-label="選択中条件">
+                      {draftFilterEntries.map((entry) => (
+                        <button type="button" className="selectedFilterChip" key={`${entry.key}:${entry.value}`} onClick={() => removeDraftFilterValue(entry.key, entry.value)}>
+                          <span>{entry.label}: {entry.value}</span>
+                          <b>×</b>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div className="filterGrid categoryFilterGrid chipFilterGrid">
                     {FILTER_KEYS.map((key) => {
-                      const options = game.categoryOptions[key] || [];
-                      const isUnused = game.categoryOptionsLoaded && options.length === 0;
-                      const isDisabled = game.categoryOptionsLoading || !game.categoryOptionsLoaded || isUnused;
+                      const options = categoryState.options[key] || [];
+                      const selectedValues = normalizeFilterValues(game.draftFilters[key]);
+                      const isUnused = game.categoryIndexLoaded && options.length === 0;
                       return (
-                        <label key={key} className="filterField">
-                          <span>{FILTER_LABELS[key] || key}</span>
+                        <section key={key} className="chipFilterField">
+                          <div className="chipFilterTitle">{FILTER_LABELS[key] || key}</div>
                           {isUnused ? (
-                            <span className="filterUnusedText" aria-label={`${FILTER_LABELS[key] || key}は未使用です`}>未使用</span>
+                            <span className="filterUnusedText" aria-label={`${FILTER_LABELS[key] || key}は未使用です`}>候補なし</span>
                           ) : (
-                            <select
-                              className="filterSelect"
-                              value={game.draftFilters[key]}
-                              disabled={isDisabled}
-                              onChange={(event) => setDraftFilterValue(key, event.target.value)}
-                            >
-                              <option value="">{game.categoryOptionsLoaded ? '指定なし' : '読み込み中'}</option>
-                              {options.map((value) => <option key={value} value={value}>{value}</option>)}
-                            </select>
+                            <div className="optionChipList">
+                              {options.map((option) => {
+                                const selected = selectedValues.includes(option.value);
+                                return (
+                                  <button
+                                    type="button"
+                                    className={`optionChip ${selected ? 'active' : ''}`}
+                                    key={option.value}
+                                    disabled={!game.categoryIndexLoaded}
+                                    onClick={() => toggleDraftFilterValue(key, option.value)}
+                                  >
+                                    <span>{option.value}</span>
+                                    <small>{option.count}</small>
+                                  </button>
+                                );
+                              })}
+                            </div>
                           )}
-                        </label>
+                        </section>
                       );
                     })}
                     <label className={`pillCheck filterToggleField ${game.draftFilters.importantOnly ? 'active' : ''}`}>
@@ -1936,7 +2003,7 @@ export default function HomePage() {
                       <span>重要のみ</span>
                     </label>
                   </div>
-                  {game.categoryOptionsLoaded && !hasAnyCategoryOptions(game.categoryOptions) && (
+                  {game.categoryIndexLoaded && !hasAnyCategoryOptions(categoryState.options) && (
                     <p className="wordListHint">カテゴリ項目は未使用です</p>
                   )}
                   <div className="panelActions categoryPanelActions">
@@ -3256,6 +3323,83 @@ export default function HomePage() {
           grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
           margin-top: 0;
           align-items: end;
+        }
+
+        .categoryDraftTotal {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+        }
+        .categoryDraftTotal small {
+          color: #7890ad;
+          font-size: 0.75rem;
+          font-weight: 800;
+        }
+        .selectedFilterChips,
+        .optionChipList {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 7px;
+        }
+        .selectedFilterChip,
+        .optionChip {
+          border: 1px solid #cfe0f5;
+          border-radius: 999px;
+          background: #ffffff;
+          color: #42658d;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 0.45em 0.75em;
+          font-size: 0.78rem;
+          font-weight: 900;
+          cursor: pointer;
+        }
+        .selectedFilterChip {
+          background: #eef7ff;
+          border-color: #9dccf5;
+          color: #236aa8;
+        }
+        .selectedFilterChip b {
+          font-size: 0.9rem;
+        }
+        .chipFilterGrid {
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: 12px;
+        }
+        .chipFilterField {
+          display: grid;
+          gap: 7px;
+          padding: 10px;
+          border: 1px solid #e0ebf8;
+          border-radius: 16px;
+          background: #fbfdff;
+        }
+        .chipFilterTitle {
+          color: #315d91;
+          font-size: 0.82rem;
+          font-weight: 900;
+        }
+        .optionChip small {
+          min-width: 1.7em;
+          border-radius: 999px;
+          background: #edf4fc;
+          color: #6f89aa;
+          padding: 0.1em 0.45em;
+          font-size: 0.7rem;
+        }
+        .optionChip.active {
+          background: #2f8ed8;
+          border-color: #2f8ed8;
+          color: #ffffff;
+          box-shadow: 0 8px 18px rgba(47, 142, 216, 0.18);
+        }
+        .optionChip.active small {
+          background: rgba(255, 255, 255, 0.22);
+          color: #ffffff;
         }
         .filterField {
           display: flex;

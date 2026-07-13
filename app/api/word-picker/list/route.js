@@ -42,8 +42,11 @@ function escapeLike(value) {
 
 export function applyWordPickerFilters(query, params) {
   FILTER_KEYS.forEach((key) => {
-    const value = typeof params.get === 'function' ? params.get(key) : params[key];
-    if (value) query = query.eq(key, value);
+    const rawValue = typeof params.get === 'function' ? params.get(key) : params[key];
+    const values = Array.isArray(rawValue) ? rawValue : String(rawValue || '').split(',');
+    const normalizedValues = values.map((value) => String(value).trim()).filter(Boolean);
+    if (normalizedValues.length === 1) query = query.eq(key, normalizedValues[0]);
+    if (normalizedValues.length > 1) query = query.in(key, normalizedValues);
   });
 
   const importantOnly = typeof params.get === 'function' ? params.get('importantOnly') : params.importantOnly;
