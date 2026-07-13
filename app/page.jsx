@@ -215,6 +215,42 @@ const FILTER_LABELS = {
   category3: 'カテゴリ3'
 };
 
+function createWordPickerOptionsParams(filters = {}, search = '') {
+  const params = new URLSearchParams();
+  FILTER_KEYS.forEach((key) => {
+    if (hasValue(filters[key])) params.set(key, filters[key]);
+  });
+  if (filters.importantOnly) params.set('importantOnly', '1');
+  if (String(search || '').trim()) params.set('search', String(search).trim());
+  return params;
+}
+
+function clearLowerDraftFilters(filters, changedKey) {
+  const nextFilters = { ...filters };
+  const changedIndex = FILTER_KEYS.indexOf(changedKey);
+  if (changedIndex === -1) return nextFilters;
+
+  FILTER_KEYS.slice(changedIndex + 1).forEach((key) => {
+    nextFilters[key] = '';
+  });
+  return nextFilters;
+}
+
+function normalizeCategoryOptions(options = {}) {
+  return Object.fromEntries(FILTER_KEYS.map((key) => [key, Array.isArray(options[key]) ? options[key] : []]));
+}
+
+function sanitizeDraftFiltersByOptions(filters = {}, options = {}) {
+  const nextFilters = { ...filters };
+  FILTER_KEYS.forEach((key) => {
+    const values = Array.isArray(options[key]) ? options[key].map(String) : [];
+    if (hasValue(nextFilters[key]) && !values.includes(String(nextFilters[key]))) {
+      nextFilters[key] = '';
+    }
+  });
+  return nextFilters;
+}
+
 const WordRow = memo(function WordRow({ word, selected, isImportant, onToggle, onSpeak }) {
   const stats = word.stats;
   const attemptCount = stats?.attempt_count ?? 0;
@@ -337,6 +373,7 @@ export default function HomePage() {
   const audioContextRef = useRef(null);
   const v2PrefetchRef = useRef({ key: '', promise: null, data: null });
   const v2OpenStartedAtRef = useRef(0);
+  const categoryOptionsRequestIdRef = useRef(0);
   const currentWord = game.quizWords[game.currentIndex] || null;
   const totalElapsed = game.now && game.totalStart ? game.now - game.totalStart : 0;
   const questionElapsed = game.now && game.questionStart ? game.now - game.questionStart : 0;
@@ -1327,11 +1364,13 @@ export default function HomePage() {
 
   function openPickerPanel(panel) {
     if (panel === 'open' && !gameRef.current.wordSets.length) void loadWordSetsForPanel();
-    if (panel === 'category' && !gameRef.current.categoryOptionsLoaded && !gameRef.current.categoryOptionsLoading) void loadCategoryOptions();
+    const nextPanel = gameRef.current.pickerPanel === panel ? '' : panel;
+    const nextDraftFilters = panel === 'category' && nextPanel === 'category' ? { ...gameRef.current.filters } : gameRef.current.draftFilters;
+    if (nextPanel === 'category') void loadCategoryOptions(nextDraftFilters);
     setGame((prev) => ({
       ...prev,
       pickerPanel: prev.pickerPanel === panel ? '' : panel,
-      draftFilters: panel === 'category' ? { ...prev.filters } : prev.draftFilters,
+      draftFilters: panel === 'category' && prev.pickerPanel !== panel ? { ...prev.filters } : prev.draftFilters,
       pendingWordSetIds: panel === 'open' ? [] : prev.pendingWordSetIds,
       wordSetSearch: panel === 'open' ? '' : prev.wordSetSearch,
       wordSetMessage: '',
@@ -1372,25 +1411,39 @@ export default function HomePage() {
     void loadV2Words({ reset: true, search: gameRef.current.v2Search, filters: nextFilters });
   }
 
-  async function loadCategoryOptions() {
+  async function loadCategoryOptions(draftFilters = gameRef.current.draftFilters, search = gameRef.current.v2Search) {
+    const requestId = categoryOptionsRequestIdRef.current + 1;
+    categoryOptionsRequestIdRef.current = requestId;
+    const params = createWordPickerOptionsParams(draftFilters, search);
+    const queryString = params.toString();
+    const url = `/api/word-picker/options${queryString ? `?${queryString}` : ''}`;
+
     setGame((prev) => ({ ...prev, categoryOptionsLoading: true, categoryOptionsError: '' }));
     try {
-      const response = await fetch('/api/word-picker/options', { cache: 'no-store' });
+      const response = await fetch(url, { cache: 'no-store' });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'カテゴリ候補の取得に失敗しました。');
-      setGame((prev) => ({
-        ...prev,
-        categoryOptions: data || {},
-        categoryOptionsLoaded: true,
-        categoryOptionsLoading: false,
-        categoryOptionsError: ''
-      }));
+      const categoryOptions = normalizeCategoryOptions(data || {});
+      setGame((prev) => {
+        if (categoryOptionsRequestIdRef.current !== requestId) return prev;
+        return {
+          ...prev,
+          categoryOptions,
+          draftFilters: sanitizeDraftFiltersByOptions(prev.draftFilters, categoryOptions),
+          categoryOptionsLoaded: true,
+          categoryOptionsLoading: false,
+          categoryOptionsError: ''
+        };
+      });
     } catch (error) {
-      setGame((prev) => ({
-        ...prev,
-        categoryOptionsLoading: false,
-        categoryOptionsError: error.message || 'カテゴリ候補の取得に失敗しました。'
-      }));
+      setGame((prev) => {
+        if (categoryOptionsRequestIdRef.current !== requestId) return prev;
+        return {
+          ...prev,
+          categoryOptionsLoading: false,
+          categoryOptionsError: error.message || 'カテゴリ候補の取得に失敗しました。'
+        };
+      });
     }
   }
 
@@ -1456,12 +1509,16 @@ export default function HomePage() {
   }
 
   function setDraftFilterValue(key, value) {
-    setGame((prev) => {
-      if (key === 'selectedOnly' && value && prev.selectedWordIds.length === 0) {
-        return prev;
-      }
-      return { ...prev, draftFilters: { ...prev.draftFilters, [key]: value } };
-    });
+    const current = gameRef.current;
+    if (key === 'selectedOnly' && value && current.selectedWordIds.length === 0) return;
+
+    const changedFilters = { ...current.draftFilters, [key]: value };
+    const nextDraftFilters = FILTER_KEYS.includes(key) ? clearLowerDraftFilters(changedFilters, key) : changedFilters;
+    setGame((prev) => ({ ...prev, draftFilters: nextDraftFilters }));
+
+    if (key === 'importantOnly' || FILTER_KEYS.includes(key)) {
+      void loadCategoryOptions(nextDraftFilters);
+    }
   }
 
   async function resolveAllMatchingSelection(sourceGame = gameRef.current) {
@@ -1827,15 +1884,24 @@ export default function HomePage() {
                   {game.categoryOptionsLoading && <p className="wordListHint">カテゴリ候補を読み込み中です...</p>}
                   {game.categoryOptionsError && <p className="wordSetMessage error">{game.categoryOptionsError}</p>}
                   <div className="filterGrid categoryFilterGrid">
-                    {FILTER_KEYS.map((key) => (
-                      <label key={key} className="filterField">
-                        <span>{key}</span>
-                        <select className="filterSelect" value={game.draftFilters[key]} onChange={(event) => setDraftFilterValue(key, event.target.value)}>
-                          <option value="">指定なし</option>
-                          {(game.categoryOptions[key] || []).map((value) => <option key={value} value={value}>{value}</option>)}
-                        </select>
-                      </label>
-                    ))}
+                    {FILTER_KEYS.map((key) => {
+                      const options = game.categoryOptions[key] || [];
+                      const isDisabled = game.categoryOptionsLoading || options.length === 0;
+                      return (
+                        <label key={key} className="filterField">
+                          <span>{FILTER_LABELS[key] || key}</span>
+                          <select
+                            className="filterSelect"
+                            value={game.draftFilters[key]}
+                            disabled={isDisabled}
+                            onChange={(event) => setDraftFilterValue(key, event.target.value)}
+                          >
+                            <option value="">{options.length ? '指定なし' : '選択できる項目はありません'}</option>
+                            {options.map((value) => <option key={value} value={value}>{value}</option>)}
+                          </select>
+                        </label>
+                      );
+                    })}
                     <label className={`pillCheck filterToggleField ${game.draftFilters.importantOnly ? 'active' : ''}`}>
                       <input type="checkbox" checked={game.draftFilters.importantOnly} onChange={(event) => setDraftFilterValue('importantOnly', event.target.checked)} />
                       <span>重要のみ</span>
