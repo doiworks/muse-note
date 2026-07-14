@@ -37,6 +37,7 @@ const QUESTION_MODE_OPTIONS = [
 ];
 const MIN_CANDIDATE_FETCH = 50;
 const MAX_FETCH_LIMIT = 500;
+const QUIZ_SELECTION_TIMEOUT_MS = 10000;
 const WORD_PICKER_PAGE_SIZE = 20;
 const WORD_PICKER_PREFETCH_SIZE = 30;
 const WORD_PICKER_CACHE_KEY = 'muse-note:word-picker-v2:first-page';
@@ -391,7 +392,6 @@ export default function HomePage() {
   const [game, setGame] = useState(INITIAL_GAME);
   const [openCategoryKey, setOpenCategoryKey] = useState('');
   const [categorySearch, setCategorySearch] = useState({});
-  const [draggingCategoryKey, setDraggingCategoryKey] = useState('');
   const answerRef = useRef(null);
   const timersRef = useRef([]);
   const intervalRef = useRef(null);
@@ -427,6 +427,7 @@ export default function HomePage() {
     ? (game.v2Total === null ? 0 : Math.max(0, game.v2Total - game.excludedWordIds.length))
     : game.selectedWordIds.length;
   const selectedOnlyDisabled = selectedCount === 0;
+  const appliedCategoryTotal = useMemo(() => calculateCategoryState(game.categoryIndexRows, game.filters).total, [game.categoryIndexRows, game.filters]);
   const shouldShowWordListEmptyState = filteredWords.length === 0;
 
   const normalizedWordSetSearch = useMemo(() => normalizeText(game.wordSetSearch), [game.wordSetSearch]);
@@ -988,6 +989,42 @@ export default function HomePage() {
     return data.words || [];
   }
 
+  async function fetchJsonWithTimeout(url, options = {}, timeoutMs = QUIZ_SELECTION_TIMEOUT_MS) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, { ...options, signal: controller.signal });
+      const data = await response.json().catch(() => {
+        throw new Error('単語データの読み込みに失敗しました。もう一度お試しください。');
+      });
+      if (!response.ok) throw new Error(data.error || '単語データの取得に失敗しました。時間をおいて再度お試しください。');
+      return data;
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        throw new Error('問題の読み込みに時間がかかっています。条件を少なくするか、もう一度お試しください。');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  async function fetchQuizSelectionWords(sourceGame = gameRef.current, requestedCount = 0) {
+    const query = sourceGame.selectionMode === 'allMatching'
+      ? sourceGame.selectionQuery
+      : createSelectionQuery(sourceGame.v2Search, sourceGame.filters);
+    const data = await fetchJsonWithTimeout('/api/word-picker/quiz-selection', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...query,
+        requestedCount,
+        excludedIds: sourceGame.selectionMode === 'allMatching' ? sourceGame.excludedWordIds : []
+      })
+    });
+    return data.words || [];
+  }
+
   async function handleStart(selectedWords = null, forcedQuestionMode = null) {
     const current = gameRef.current;
     const activeQuestionMode = forcedQuestionMode || current.questionMode;
@@ -1057,6 +1094,8 @@ export default function HomePage() {
         wrongModeFallbackAvailable: false,
         errorMessage: error.message || '単語データの取得に失敗しました。時間をおいて再度お試しください。'
       }));
+    } finally {
+      setGame((prev) => (prev.isLoading ? { ...prev, isLoading: false } : prev));
     }
   }
 
@@ -1332,18 +1371,29 @@ export default function HomePage() {
   }
 
   async function handleStartSelected() {
-    if (game.selectionMode !== 'allMatching' && !game.selectedWordIds.length) {
+    const current = gameRef.current;
+    const requestedCount = Number(current.countInput);
+    const safeRequestedCount = Number.isFinite(requestedCount) && requestedCount > 0 ? Math.floor(requestedCount) : 0;
+    const hasCategoryCondition = hasV2FilterParams(current.filters) || String(current.v2Search || '').trim().length > 0;
+    if (current.selectionMode !== 'allMatching' && !current.selectedWordIds.length && !hasCategoryCondition) {
       setGame((prev) => ({ ...prev, errorMessage: '単語を1つ以上選択してください。' }));
+      return;
+    }
+    if (!current.selectedWordIds.length && hasCategoryCondition && current.categoryIndexLoaded && appliedCategoryTotal === 0) {
+      setGame((prev) => ({ ...prev, isLoading: false, errorMessage: 'この条件に合う単語がありません。' }));
       return;
     }
     setGame((prev) => ({ ...prev, isLoading: true, errorMessage: '' }));
     try {
-      const selectedWords = game.selectionMode === 'allMatching'
-        ? await resolveAllMatchingSelection(game)
-        : await fetchSelectedWordsByIds(game.selectedWordIds);
+      const selectedWords = current.selectionMode === 'allMatching' || hasCategoryCondition
+        ? await fetchQuizSelectionWords(current, safeRequestedCount)
+        : await fetchSelectedWordsByIds(current.selectedWordIds);
+      if (!selectedWords.length) throw new Error('この条件に合う単語がありません。');
       await handleStart(selectedWords, 'select');
     } catch (error) {
       setGame((prev) => ({ ...prev, isLoading: false, errorMessage: error.message || '選択した単語の取得に失敗しました。' }));
+    } finally {
+      setGame((prev) => (prev.isLoading ? { ...prev, isLoading: false } : prev));
     }
   }
 
@@ -1434,7 +1484,6 @@ export default function HomePage() {
     const nextDraftFilters = panel === 'category' && nextPanel === 'category' ? { ...gameRef.current.filters } : gameRef.current.draftFilters;
     if (nextPanel === 'category') {
       setOpenCategoryKey('');
-      setDragSelectEnabled(false);
       void loadCategoryOptions(nextDraftFilters);
     }
     setGame((prev) => ({
@@ -1558,7 +1607,6 @@ export default function HomePage() {
     setGame((prev) => ({ ...prev, draftFilters: nextFilters }));
     setOpenCategoryKey('');
     setCategorySearch({});
-    setDragSelectEnabled(false);
   }
 
   function applyCategoryFilters() {
@@ -2230,7 +2278,7 @@ export default function HomePage() {
                       {game.categoryIndexLoaded && options.length === 0 ? (
                         <p className="filterUnusedText compactUnused">未使用</p>
                       ) : (
-                        <div className={`choiceSheetScrollable normalChipGrid ${draggingCategoryKey === key ? 'dragging' : ''}`} onPointerMove={moveCategoryPointer} onPointerUp={endCategoryPointer} onPointerCancel={endCategoryPointer} onLostPointerCapture={endCategoryPointer} onTouchEnd={resetCategoryDragState} onTouchCancel={resetCategoryDragState}>
+                        <div className="choiceSheetScrollable normalChipGrid">
                           <div className="optionChipGrid openOptionChipList">
                             {candidateOptions.map((option) => {
                               const selected = selectedValues.includes(option.value);
@@ -2243,8 +2291,7 @@ export default function HomePage() {
                                   data-category-chip-value={option.value}
                                   data-chip-value={option.value}
                                   disabled={!game.categoryIndexLoaded}
-                                  onPointerDown={(event) => startCategoryPointer(event, key, option.value, selected)}
-                                  onClick={(event) => event.preventDefault()}
+                                  onClick={() => updateDraftFilterValue(key, option.value, 'toggle')}
                                 >
                                   <span>{option.value}</span>
                                 </button>
@@ -2255,7 +2302,6 @@ export default function HomePage() {
                         </div>
                       )}
                       <div className="choiceSheetActions">
-                        <span className="dragSelectToggle dragSelectAutoLabel">なぞり自動</span>
                         <button type="button" className="retryBtn primary compact" onClick={() => setOpenCategoryKey('')}>完了</button>
                       </div>
                     </section>
@@ -3799,8 +3845,8 @@ export default function HomePage() {
           color: #ffffff;
         }
         .choiceSheetActions {
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) minmax(116px, 0.45fr);
+          display: flex;
+          justify-content: flex-end;
           gap: 10px;
           padding: 2px 0 max(6px, env(safe-area-inset-bottom));
           align-items: center;
