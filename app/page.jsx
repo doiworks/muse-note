@@ -209,7 +209,6 @@ function DiffText({ answer, correct }) {
 }
 
 const FILTER_KEYS = ['school_level', 'grade', 'term', 'exam_type', 'category1', 'category2', 'category3'];
-const CATEGORY_INITIAL_VISIBLE_COUNT = 12;
 const CATEGORY_NEXT_KEY = {
   grade: 'category1',
   category1: 'category2',
@@ -393,7 +392,7 @@ export default function HomePage() {
   const [openCategoryKey, setOpenCategoryKey] = useState('');
   const [categorySearch, setCategorySearch] = useState({});
   const [draggingCategoryKey, setDraggingCategoryKey] = useState('');
-  const [categoryVisibleCounts, setCategoryVisibleCounts] = useState({});
+  const [dragSelectEnabled, setDragSelectEnabled] = useState(false);
   const answerRef = useRef(null);
   const timersRef = useRef([]);
   const intervalRef = useRef(null);
@@ -403,7 +402,7 @@ export default function HomePage() {
   const v2PrefetchRef = useRef({ key: '', promise: null, data: null });
   const v2OpenStartedAtRef = useRef(0);
   const categoryOptionsRequestIdRef = useRef(0);
-  const categoryDragRef = useRef({ active: false, pending: false, key: '', value: '', mode: 'add', startX: 0, startY: 0, pointerId: null, processed: new Set() });
+  const categoryDragRef = useRef({ active: false, pending: false, key: '', value: '', mode: 'add', startX: 0, startY: 0, pointerId: null, processed: new Set(), scrollContainer: null, autoScrollFrame: 0, autoScrollSpeed: 0, lastClientX: 0, lastClientY: 0 });
   const currentWord = game.quizWords[game.currentIndex] || null;
   const totalElapsed = game.now && game.totalStart ? game.now - game.totalStart : 0;
   const questionElapsed = game.now && game.questionStart ? game.now - game.questionStart : 0;
@@ -1399,6 +1398,7 @@ export default function HomePage() {
     const nextDraftFilters = panel === 'category' && nextPanel === 'category' ? { ...gameRef.current.filters } : gameRef.current.draftFilters;
     if (nextPanel === 'category') {
       setOpenCategoryKey('');
+      setDragSelectEnabled(false);
       void loadCategoryOptions(nextDraftFilters);
     }
     setGame((prev) => ({
@@ -1522,7 +1522,7 @@ export default function HomePage() {
     setGame((prev) => ({ ...prev, draftFilters: nextFilters }));
     setOpenCategoryKey('');
     setCategorySearch({});
-    setCategoryVisibleCounts({});
+    setDragSelectEnabled(false);
   }
 
   function applyCategoryFilters() {
@@ -1608,6 +1608,13 @@ export default function HomePage() {
     updateDraftFilterValue(key, value, 'toggle');
   }
 
+  function resetCategoryAutoScroll() {
+    const dragState = categoryDragRef.current;
+    if (dragState.autoScrollFrame) cancelAnimationFrame(dragState.autoScrollFrame);
+    dragState.autoScrollFrame = 0;
+    dragState.autoScrollSpeed = 0;
+  }
+
   function applyCategoryDragValue(key, value) {
     const dragState = categoryDragRef.current;
     if (!dragState.active || dragState.key !== key || dragState.processed.has(value)) return;
@@ -1615,19 +1622,62 @@ export default function HomePage() {
     updateDraftFilterValue(key, value, dragState.mode);
   }
 
+  function runCategoryAutoScroll() {
+    const dragState = categoryDragRef.current;
+    if (!dragState.active || !dragState.scrollContainer || !dragState.autoScrollSpeed) {
+      resetCategoryAutoScroll();
+      return;
+    }
+    dragState.scrollContainer.scrollTop += dragState.autoScrollSpeed;
+    const target = document.elementFromPoint(dragState.lastClientX, dragState.lastClientY)?.closest?.('[data-chip-value]');
+    if (target && target.dataset.categoryChipKey === dragState.key) applyCategoryDragValue(dragState.key, target.dataset.chipValue);
+    dragState.autoScrollFrame = requestAnimationFrame(runCategoryAutoScroll);
+  }
+
+  function updateCategoryAutoScroll(event) {
+    const dragState = categoryDragRef.current;
+    const container = dragState.scrollContainer;
+    if (!dragState.active || !container) return;
+    dragState.lastClientX = event.clientX;
+    dragState.lastClientY = event.clientY;
+    const rect = container.getBoundingClientRect();
+    const edgeSize = 72;
+    let speed = 0;
+    if (event.clientY < rect.top + edgeSize) speed = -Math.max(2, Math.round((rect.top + edgeSize - event.clientY) / 8));
+    if (event.clientY > rect.bottom - edgeSize) speed = Math.max(2, Math.round((event.clientY - (rect.bottom - edgeSize)) / 8));
+    speed = Math.max(-10, Math.min(10, speed));
+    if (dragState.autoScrollSpeed === speed) return;
+    dragState.autoScrollSpeed = speed;
+    if (speed && !dragState.autoScrollFrame) dragState.autoScrollFrame = requestAnimationFrame(runCategoryAutoScroll);
+    if (!speed) resetCategoryAutoScroll();
+  }
+
   function startCategoryPointer(event, key, value, selected) {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    const scrollContainer = event.currentTarget.closest?.('.choiceSheetScrollable');
     categoryDragRef.current = {
-      active: false,
-      pending: true,
+      active: dragSelectEnabled,
+      pending: !dragSelectEnabled,
       key,
       value,
       mode: selected ? 'remove' : 'add',
       startX: event.clientX,
       startY: event.clientY,
       pointerId: event.pointerId,
-      processed: new Set()
+      processed: new Set(),
+      scrollContainer,
+      autoScrollFrame: 0,
+      autoScrollSpeed: 0,
+      lastClientX: event.clientX,
+      lastClientY: event.clientY
     };
+    if (dragSelectEnabled) {
+      event.preventDefault();
+      setDraggingCategoryKey(key);
+      applyCategoryDragValue(key, value);
+      updateCategoryAutoScroll(event);
+    }
   }
 
   function moveCategoryPointer(event) {
@@ -1635,6 +1685,7 @@ export default function HomePage() {
     if (!dragState.pending && !dragState.active) return;
     if (dragState.pointerId !== null && event.pointerId !== dragState.pointerId) return;
     const distance = Math.hypot(event.clientX - dragState.startX, event.clientY - dragState.startY);
+    if (!dragSelectEnabled) return;
     if (!dragState.active && distance >= 8) {
       categoryDragRef.current = { ...dragState, active: true, pending: false };
       setDraggingCategoryKey(dragState.key);
@@ -1642,23 +1693,21 @@ export default function HomePage() {
     }
     if (!categoryDragRef.current.active) return;
     event.preventDefault();
-    const target = document.elementFromPoint(event.clientX, event.clientY)?.closest?.('[data-category-chip-value]');
-    if (!target || target.dataset.categoryChipKey !== categoryDragRef.current.key) return;
-    applyCategoryDragValue(categoryDragRef.current.key, target.dataset.categoryChipValue);
+    const target = document.elementFromPoint(event.clientX, event.clientY)?.closest?.('[data-chip-value]');
+    if (target && target.dataset.categoryChipKey === categoryDragRef.current.key) applyCategoryDragValue(categoryDragRef.current.key, target.dataset.chipValue);
+    updateCategoryAutoScroll(event);
   }
 
   function endCategoryPointer(event) {
     const dragState = categoryDragRef.current;
     if (dragState.pointerId !== null && event?.pointerId !== undefined && event.pointerId !== dragState.pointerId) return;
-    if (dragState.pending && !dragState.active && dragState.key && dragState.value) {
+    const distance = event?.clientX === undefined ? Infinity : Math.hypot(event.clientX - dragState.startX, event.clientY - dragState.startY);
+    if (!dragSelectEnabled && dragState.pending && !dragState.active && dragState.key && dragState.value && distance < 8) {
       updateDraftFilterValue(dragState.key, dragState.value, 'toggle');
     }
-    categoryDragRef.current = { active: false, pending: false, key: '', value: '', mode: 'add', startX: 0, startY: 0, pointerId: null, processed: new Set() };
+    resetCategoryAutoScroll();
+    categoryDragRef.current = { active: false, pending: false, key: '', value: '', mode: 'add', startX: 0, startY: 0, pointerId: null, processed: new Set(), scrollContainer: null, autoScrollFrame: 0, autoScrollSpeed: 0, lastClientX: 0, lastClientY: 0 };
     setDraggingCategoryKey('');
-  }
-
-  function showMoreCategoryOptions(key) {
-    setCategoryVisibleCounts((prev) => ({ ...prev, [key]: (prev[key] || CATEGORY_INITIAL_VISIBLE_COUNT) + CATEGORY_INITIAL_VISIBLE_COUNT }));
   }
 
   function removeDraftFilterValue(key, value) {
@@ -1667,7 +1716,6 @@ export default function HomePage() {
 
   function updateCategorySearch(key, value) {
     setCategorySearch((prev) => ({ ...prev, [key]: value }));
-    setCategoryVisibleCounts((prev) => ({ ...prev, [key]: CATEGORY_INITIAL_VISIBLE_COUNT }));
   }
 
 
@@ -2089,46 +2137,28 @@ export default function HomePage() {
                   const selectedValues = normalizeFilterValues(game.draftFilters[key]);
                   const query = categorySearch[key] || '';
                   const normalizedQuery = normalizeText(query);
-                  const selectedOptionItems = options.filter((option) => selectedValues.includes(option.value));
                   const candidateOptions = options
-                    .filter((option) => !selectedValues.includes(option.value))
                     .filter((option) => !normalizedQuery || normalizeText(option.value).includes(normalizedQuery))
                     .sort((a, b) => (Number(b.count) || 0) - (Number(a.count) || 0) || a.value.localeCompare(b.value, 'ja', { numeric: true }));
-                  const visibleCount = categoryVisibleCounts[key] || CATEGORY_INITIAL_VISIBLE_COUNT;
-                  const visibleCandidateOptions = candidateOptions.slice(0, visibleCount);
-                  const hasMoreOptions = visibleCandidateOptions.length < candidateOptions.length;
                   return (
                     <section id={`category-sheet-${key}`} className="categoryChoiceSheet" role="dialog" aria-modal="true" aria-label={`${FILTER_LABELS[key] || key}の候補`}>
-                      <div className="choiceSheetHandle" aria-hidden="true" />
                       <div className="choiceSheetHeader">
-                        <h4>{FILTER_LABELS[key] || key}</h4>
-                        <small>{selectedValues.length ? `${selectedValues.length}件選択中` : '未選択'}</small>
+                        <div>
+                          <h4>{FILTER_LABELS[key] || key}を選ぶ</h4>
+                          <small>選択中 {selectedValues.length}件</small>
+                        </div>
                         <button type="button" className="panelCloseButton" onClick={() => setOpenCategoryKey('')} aria-label="候補を閉じる">×</button>
                       </div>
-                      <div className="choiceSheetFixedTop">
-                        {options.length > CATEGORY_INITIAL_VISIBLE_COUNT && (
-                          <input className="categoryOptionSearch" value={query} onChange={(event) => updateCategorySearch(key, event.target.value)} placeholder="候補を検索" aria-label={`${FILTER_LABELS[key] || key}の候補を検索`} />
-                        )}
-                        {selectedOptionItems.length > 0 && (
-                          <div className="choiceSheetSection" aria-label="選択中の候補">
-                            <span className="choiceSheetSectionTitle">選択中</span>
-                            <div className="optionChipList selectedOptionChipList">
-                              {selectedOptionItems.map((option) => (
-                                <button type="button" className="optionChip active selectedTopChip" key={option.value} onClick={() => toggleDraftFilterValue(key, option.value)}>
-                                  <span>✓ {option.value}</span>
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
+                      <div className="categoryDraftTotal choiceSheetCountCard" aria-live="polite">
+                        <span>この条件で表示できる単語：<strong>{categoryState.total}</strong>件</span>
                       </div>
+                      <input className="categoryOptionSearch" value={query} onChange={(event) => updateCategorySearch(key, event.target.value)} placeholder="候補を検索" aria-label={`${FILTER_LABELS[key] || key}の候補を検索`} />
                       {game.categoryIndexLoaded && options.length === 0 ? (
                         <p className="filterUnusedText compactUnused">未使用</p>
                       ) : (
-                        <div className={`choiceSheetScrollable ${draggingCategoryKey === key ? 'dragging' : ''}`} onPointerMove={moveCategoryPointer} onPointerUp={endCategoryPointer} onPointerCancel={endCategoryPointer} onPointerLeave={endCategoryPointer}>
-                          <span className="choiceSheetSectionTitle">候補</span>
-                          <div className="optionChipList openOptionChipList">
-                            {visibleCandidateOptions.map((option) => {
+                        <div className={`choiceSheetScrollable ${dragSelectEnabled ? 'dragSelectChipGrid' : 'normalChipGrid'} ${draggingCategoryKey === key ? 'dragging' : ''}`} onPointerMove={moveCategoryPointer} onPointerUp={endCategoryPointer} onPointerCancel={endCategoryPointer}>
+                          <div className="optionChipGrid openOptionChipList">
+                            {candidateOptions.map((option) => {
                               const selected = selectedValues.includes(option.value);
                               return (
                                 <button
@@ -2137,21 +2167,21 @@ export default function HomePage() {
                                   key={option.value}
                                   data-category-chip-key={key}
                                   data-category-chip-value={option.value}
+                                  data-chip-value={option.value}
                                   disabled={!game.categoryIndexLoaded}
                                   onPointerDown={(event) => startCategoryPointer(event, key, option.value, selected)}
                                   onClick={(event) => event.preventDefault()}
                                 >
-                                  <span>{selected ? `✓ ${option.value}` : option.value}</span>
+                                  <span>{option.value}</span>
                                 </button>
                               );
                             })}
                           </div>
-                          {hasMoreOptions && <button type="button" className="showMoreCategoryButton" onClick={() => showMoreCategoryOptions(key)}>もっと見る</button>}
                           {candidateOptions.length === 0 && <p className="filterUnusedText compactUnused">該当する候補がありません</p>}
                         </div>
                       )}
                       <div className="choiceSheetActions">
-                        <button type="button" className="retryBtn secondaryAction compact" onClick={() => setDraftFilterValue(key, [])}>この項目を解除</button>
+                        <button type="button" className={`dragSelectToggle ${dragSelectEnabled ? 'active' : ''}`} onClick={() => setDragSelectEnabled((value) => !value)}>なぞり選択 {dragSelectEnabled ? 'ON' : 'OFF'}</button>
                         <button type="button" className="retryBtn primary compact" onClick={() => setOpenCategoryKey('')}>完了</button>
                       </div>
                     </section>
@@ -3585,143 +3615,132 @@ export default function HomePage() {
         }
         .categoryChoiceSheet {
           position: fixed;
-          left: 50%;
-          bottom: max(10px, env(safe-area-inset-bottom));
+          inset: 0;
           z-index: 1004;
-          width: min(720px, calc(100vw - 20px));
-          max-height: min(72vh, 620px);
+          width: 100vw;
+          height: 100dvh;
           display: grid;
           grid-template-rows: auto auto auto minmax(0, 1fr) auto;
-          gap: 10px;
-          border: 1px solid #c8dcf4;
-          border-radius: 26px 26px 22px 22px;
-          background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, #f7fbff 100%);
-          box-shadow: 0 -18px 60px rgba(24, 58, 99, 0.26);
-          padding: 10px 14px 14px;
-          transform: translateX(-50%);
+          gap: 14px;
+          border: 0;
+          border-radius: 0;
+          background: linear-gradient(180deg, #f8fbff 0%, #eef6ff 100%);
+          box-shadow: none;
+          padding: max(16px, env(safe-area-inset-top)) clamp(14px, 4vw, 34px) max(14px, env(safe-area-inset-bottom));
         }
-        .choiceSheetHandle {
-          width: 42px;
-          height: 5px;
-          justify-self: center;
-          border-radius: 999px;
-          background: #c9d8ea;
-        }
+        .choiceSheetHandle { display: none; }
         .choiceSheetHeader {
           display: grid;
-          grid-template-columns: 1fr auto 40px;
+          grid-template-columns: minmax(0, 1fr) 44px;
           align-items: center;
-          gap: 10px;
+          gap: 12px;
         }
         .choiceSheetHeader h4 {
-          margin: 0;
-          color: #315d91;
-          font-size: 1rem;
+          margin: 0 0 4px;
+          color: #183b62;
+          font-size: clamp(1.15rem, 4.5vw, 1.65rem);
+          letter-spacing: -0.03em;
         }
         .choiceSheetHeader small {
-          color: #7890ad;
-          font-weight: 900;
-        }
-        .choiceSheetFixedTop {
-          display: grid;
-          gap: 10px;
-          min-width: 0;
-        }
-        .choiceSheetSection {
-          display: grid;
-          gap: 7px;
-          min-width: 0;
-        }
-        .choiceSheetSectionTitle {
           color: #607b9d;
-          font-size: 0.78rem;
           font-weight: 900;
-          letter-spacing: 0.03em;
         }
+        .choiceSheetCountCard {
+          border: 1px solid #d8e7f7;
+          border-radius: 20px;
+          background: rgba(255,255,255,0.82);
+          box-shadow: 0 12px 30px rgba(36, 83, 128, 0.08);
+          padding: 12px 14px;
+        }
+        .choiceSheetSectionTitle { display: none; }
         .categoryOptionSearch {
-          min-height: 42px;
+          min-height: 48px;
           border: 1px solid #cfe0f5;
           border-radius: 999px;
           background: #ffffff;
-          color: #315d91;
-          padding: 0 0.95em;
-          font-weight: 800;
+          color: #183b62;
+          padding: 0 1.1em;
+          font-size: 1rem;
+          font-weight: 850;
           min-width: 0;
+          box-shadow: 0 10px 24px rgba(36, 83, 128, 0.08);
         }
         .choiceSheetScrollable {
           min-height: 0;
           overflow: auto;
-          display: grid;
-          align-content: start;
-          gap: 8px;
-          padding: 2px 2px 10px;
-          touch-action: pan-y;
+          display: block;
+          padding: 2px 4px 18px;
           overscroll-behavior: contain;
+          border-radius: 22px;
         }
+        .choiceSheetScrollable.normalChipGrid { touch-action: pan-y; }
+        .choiceSheetScrollable.dragSelectChipGrid,
         .choiceSheetScrollable.dragging {
           touch-action: none;
           user-select: none;
         }
-        .openOptionChipList,
-        .selectedOptionChipList {
+        .optionChipGrid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+          gap: 10px;
           align-content: start;
-          max-height: none;
           min-height: 0;
           overflow: visible;
           padding: 0;
           touch-action: inherit;
         }
-        .openOptionChipList .optionChip,
-        .selectedOptionChipList .optionChip {
-          min-height: 42px;
-          padding: 0.64em 0.95em;
+        .optionChipGrid .optionChip {
+          width: 100%;
+          min-height: 46px;
+          justify-content: center;
+          padding: 0.7em 0.85em;
           font-size: 0.9rem;
+          line-height: 1.15;
+          text-align: center;
         }
         .optionChip.active {
-          border-color: #61a9e8;
-          background: linear-gradient(135deg, #e5f4ff 0%, #f5fbff 100%);
-          color: #1969aa;
-          box-shadow: inset 0 0 0 1px rgba(63, 142, 215, 0.18);
+          border-color: #2d8bd3;
+          background: linear-gradient(135deg, #2e8bd4 0%, #61b4ee 100%);
+          color: #ffffff;
+          box-shadow: 0 10px 22px rgba(46, 139, 212, 0.2);
         }
-        .selectedTopChip,
         .dragOptionChip {
           -webkit-tap-highlight-color: transparent;
-          touch-action: manipulation;
-          transition: transform 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+          touch-action: inherit;
+          transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
         }
         .dragOptionChip:hover,
         .dragOptionChip:focus-visible {
           border-color: #83bff2;
           background: #f2f9ff;
-          box-shadow: 0 5px 14px rgba(47, 142, 216, 0.12);
+          box-shadow: 0 7px 16px rgba(47, 142, 216, 0.12);
         }
-        .dragOptionChip:active {
-          transform: scale(0.98);
-          box-shadow: 0 4px 12px rgba(47, 142, 216, 0.18);
-        }
-        .showMoreCategoryButton {
-          min-height: 42px;
-          border: 1px dashed #9cc8ee;
-          border-radius: 14px;
-          background: #f4faff;
-          color: #2875b4;
-          font-weight: 900;
-          cursor: pointer;
+        .dragOptionChip.active:hover,
+        .dragOptionChip.active:focus-visible {
+          border-color: #2d8bd3;
+          background: linear-gradient(135deg, #2e8bd4 0%, #61b4ee 100%);
+          color: #ffffff;
         }
         .choiceSheetActions {
           display: grid;
-          grid-template-columns: 1fr 1fr;
+          grid-template-columns: minmax(0, 1fr) minmax(116px, 0.45fr);
           gap: 10px;
-          padding-top: 8px;
-          border-top: 1px solid #e3eefb;
-          background: linear-gradient(180deg, rgba(247,251,255,0.85), #f7fbff 45%);
+          padding-top: 2px;
         }
-        .choiceSheetActions .retryBtn {
-          min-height: 44px;
+        .dragSelectToggle {
+          min-height: 48px;
+          border: 1px solid #cfe0f5;
+          border-radius: 16px;
+          background: #ffffff;
+          color: #315d91;
+          font-weight: 950;
+          cursor: pointer;
+          box-shadow: 0 10px 24px rgba(36, 83, 128, 0.08);
         }
-        .compactUnused {
-          margin: 0;
-          font-weight: 800;
+        .dragSelectToggle.active {
+          border-color: #2d8bd3;
+          background: #e3f2ff;
+          color: #176aaa;
         }
         .chipFilterGrid {
           display: grid;
