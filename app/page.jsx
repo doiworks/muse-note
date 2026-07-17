@@ -392,6 +392,7 @@ export default function HomePage() {
   const [game, setGame] = useState(INITIAL_GAME);
   const [openCategoryKey, setOpenCategoryKey] = useState('');
   const [categorySearch, setCategorySearch] = useState({});
+  const [draggingCategoryKey, setDraggingCategoryKey] = useState('');
   const answerRef = useRef(null);
   const timersRef = useRef([]);
   const intervalRef = useRef(null);
