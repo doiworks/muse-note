@@ -392,7 +392,6 @@ export default function HomePage() {
   const [game, setGame] = useState(INITIAL_GAME);
   const [openCategoryKey, setOpenCategoryKey] = useState('');
   const [categorySearch, setCategorySearch] = useState({});
-  const [draggingCategoryKey, setDraggingCategoryKey] = useState('');
   const answerRef = useRef(null);
   const timersRef = useRef([]);
   const intervalRef = useRef(null);
@@ -402,7 +401,6 @@ export default function HomePage() {
   const v2PrefetchRef = useRef({ key: '', promise: null, data: null });
   const v2OpenStartedAtRef = useRef(0);
   const categoryOptionsRequestIdRef = useRef(0);
-  const categoryDragRef = useRef({ active: false, pending: false, ready: false, scrollIntent: false, key: '', value: '', mode: 'add', startX: 0, startY: 0, pointerId: null, processed: new Set(), scrollContainer: null, captureTarget: null, longPressTimer: 0, autoScrollFrame: 0, autoScrollSpeed: 0, lastClientX: 0, lastClientY: 0 });
   const currentWord = game.quizWords[game.currentIndex] || null;
   const totalElapsed = game.now && game.totalStart ? game.now - game.totalStart : 0;
   const questionElapsed = game.now && game.questionStart ? game.now - game.questionStart : 0;
@@ -494,33 +492,9 @@ export default function HomePage() {
     return () => {
       document.body.style.overflow = previousBodyOverflow;
       document.documentElement.style.overflow = previousHtmlOverflow;
-      resetCategoryDragState();
     };
   }, [openCategoryKey]);
 
-  useEffect(() => {
-    if (typeof window === 'undefined' || typeof document === 'undefined') return undefined;
-    const forceEnd = (event) => endCategoryPointer(event);
-    const endOnVisibilityChange = () => {
-      if (document.visibilityState !== 'visible') resetCategoryDragState();
-    };
-    window.addEventListener('pointerup', forceEnd);
-    window.addEventListener('pointercancel', forceEnd);
-    window.addEventListener('mouseup', forceEnd);
-    window.addEventListener('blur', resetCategoryDragState);
-    window.addEventListener('touchend', resetCategoryDragState, { passive: true });
-    window.addEventListener('touchcancel', resetCategoryDragState, { passive: true });
-    document.addEventListener('visibilitychange', endOnVisibilityChange);
-    return () => {
-      window.removeEventListener('pointerup', forceEnd);
-      window.removeEventListener('pointercancel', forceEnd);
-      window.removeEventListener('mouseup', forceEnd);
-      window.removeEventListener('blur', resetCategoryDragState);
-      window.removeEventListener('touchend', resetCategoryDragState);
-      window.removeEventListener('touchcancel', resetCategoryDragState);
-      document.removeEventListener('visibilitychange', endOnVisibilityChange);
-    };
-  }, []);
 
 
   function clearAllTimers() {
@@ -1693,146 +1667,6 @@ export default function HomePage() {
     updateDraftFilterValue(key, value, 'toggle');
   }
 
-  function resetCategoryAutoScroll() {
-    const dragState = categoryDragRef.current;
-    if (dragState.autoScrollFrame) cancelAnimationFrame(dragState.autoScrollFrame);
-    dragState.autoScrollFrame = 0;
-    dragState.autoScrollSpeed = 0;
-  }
-
-  function clearCategoryLongPressTimer(dragState = categoryDragRef.current) {
-    if (!dragState.longPressTimer) return;
-    clearTimeout(dragState.longPressTimer);
-    dragState.longPressTimer = 0;
-  }
-
-  function resetCategoryDragState() {
-    const dragState = categoryDragRef.current;
-    resetCategoryAutoScroll();
-    clearCategoryLongPressTimer(dragState);
-    if (dragState.captureTarget && dragState.pointerId !== null && dragState.captureTarget.hasPointerCapture?.(dragState.pointerId)) {
-      dragState.captureTarget.releasePointerCapture?.(dragState.pointerId);
-    }
-    categoryDragRef.current = { active: false, pending: false, ready: false, scrollIntent: false, key: '', value: '', mode: 'add', startX: 0, startY: 0, pointerId: null, processed: new Set(), scrollContainer: null, captureTarget: null, longPressTimer: 0, autoScrollFrame: 0, autoScrollSpeed: 0, lastClientX: 0, lastClientY: 0 };
-    setDraggingCategoryKey('');
-  }
-
-  function applyCategoryDragValue(key, value) {
-    const dragState = categoryDragRef.current;
-    if (!dragState.active || dragState.key !== key || dragState.processed.has(value)) return;
-    dragState.processed.add(value);
-    updateDraftFilterValue(key, value, dragState.mode);
-  }
-
-  function applyCategoryDragValueAtPoint(clientX, clientY) {
-    const dragState = categoryDragRef.current;
-    const target = document.elementFromPoint(clientX, clientY)?.closest?.('[data-chip-value]');
-    if (target && target.dataset.categoryChipKey === dragState.key) applyCategoryDragValue(dragState.key, target.dataset.chipValue);
-  }
-
-  function beginCategoryDragSelection(event) {
-    const dragState = categoryDragRef.current;
-    if (!dragState.pending || dragState.active || dragState.scrollIntent) return;
-    dragState.active = true;
-    dragState.pending = false;
-    dragState.captureTarget = dragState.scrollContainer || event.currentTarget;
-    dragState.captureTarget?.setPointerCapture?.(dragState.pointerId);
-    setDraggingCategoryKey(dragState.key);
-    event.preventDefault();
-    applyCategoryDragValue(dragState.key, dragState.value);
-    applyCategoryDragValueAtPoint(event.clientX, event.clientY);
-    updateCategoryAutoScroll(event);
-  }
-
-  function runCategoryAutoScroll() {
-    const dragState = categoryDragRef.current;
-    if (!dragState.active || !dragState.scrollContainer || !dragState.autoScrollSpeed) {
-      resetCategoryAutoScroll();
-      return;
-    }
-    dragState.scrollContainer.scrollTop += dragState.autoScrollSpeed;
-    applyCategoryDragValueAtPoint(dragState.lastClientX, dragState.lastClientY);
-    dragState.autoScrollFrame = requestAnimationFrame(runCategoryAutoScroll);
-  }
-
-  function updateCategoryAutoScroll(event) {
-    const dragState = categoryDragRef.current;
-    const container = dragState.scrollContainer;
-    if (!dragState.active || !container) return;
-    dragState.lastClientX = event.clientX;
-    dragState.lastClientY = event.clientY;
-    const rect = container.getBoundingClientRect();
-    const edgeSize = 56;
-    let speed = 0;
-    if (event.clientY < rect.top + edgeSize) speed = -Math.max(1, Math.round((rect.top + edgeSize - event.clientY) / 10));
-    if (event.clientY > rect.bottom - edgeSize) speed = Math.max(1, Math.round((event.clientY - (rect.bottom - edgeSize)) / 10));
-    speed = Math.max(-8, Math.min(8, speed));
-    if (dragState.autoScrollSpeed === speed) return;
-    dragState.autoScrollSpeed = speed;
-    if (speed && !dragState.autoScrollFrame) dragState.autoScrollFrame = requestAnimationFrame(runCategoryAutoScroll);
-    if (!speed) resetCategoryAutoScroll();
-  }
-
-  function startCategoryPointer(event, key, value, selected) {
-    if (categoryDragRef.current.pointerId !== null) return;
-    if (event.pointerType === 'mouse' && event.button !== 0) return;
-    const scrollContainer = event.currentTarget.closest?.('.choiceSheetScrollable');
-    const pointerId = event.pointerId;
-    const longPressTimer = setTimeout(() => {
-      const dragState = categoryDragRef.current;
-      if (dragState.pointerId === pointerId && dragState.pending && !dragState.scrollIntent) dragState.ready = true;
-    }, 140);
-    categoryDragRef.current = {
-      active: false,
-      pending: true,
-      ready: false,
-      scrollIntent: false,
-      key,
-      value,
-      mode: selected ? 'remove' : 'add',
-      startX: event.clientX,
-      startY: event.clientY,
-      pointerId,
-      processed: new Set(),
-      scrollContainer,
-      captureTarget: null,
-      longPressTimer,
-      autoScrollFrame: 0,
-      autoScrollSpeed: 0,
-      lastClientX: event.clientX,
-      lastClientY: event.clientY
-    };
-  }
-
-  function moveCategoryPointer(event) {
-    const dragState = categoryDragRef.current;
-    if (!dragState.pending && !dragState.active) return;
-    if (dragState.pointerId !== null && event.pointerId !== dragState.pointerId) return;
-    const dx = event.clientX - dragState.startX;
-    const dy = event.clientY - dragState.startY;
-    const distance = Math.hypot(dx, dy);
-    if (dragState.pending && !dragState.ready && Math.abs(dy) >= 10 && Math.abs(dy) > Math.abs(dx)) {
-      dragState.scrollIntent = true;
-      clearCategoryLongPressTimer(dragState);
-      return;
-    }
-    if (dragState.pending && dragState.ready && distance >= 8) beginCategoryDragSelection(event);
-    if (!categoryDragRef.current.active) return;
-    event.preventDefault();
-    applyCategoryDragValueAtPoint(event.clientX, event.clientY);
-    updateCategoryAutoScroll(event);
-  }
-
-  function endCategoryPointer(event) {
-    const dragState = categoryDragRef.current;
-    if (dragState.pointerId !== null && event?.pointerId !== undefined && event.pointerId !== dragState.pointerId) return;
-    const distance = event?.clientX === undefined ? Infinity : Math.hypot(event.clientX - dragState.startX, event.clientY - dragState.startY);
-    if (dragState.pending && !dragState.active && !dragState.scrollIntent && dragState.key && dragState.value && distance < 8) {
-      updateDraftFilterValue(dragState.key, dragState.value, 'toggle');
-    }
-    resetCategoryDragState();
-  }
-
   function removeDraftFilterValue(key, value) {
     setDraftFilterValue(key, normalizeFilterValues(gameRef.current.draftFilters[key]).filter((item) => item !== value));
   }
@@ -2286,7 +2120,7 @@ export default function HomePage() {
                               return (
                                 <button
                                   type="button"
-                                  className={`optionChip dragOptionChip ${selected ? 'active' : ''}`}
+                                  className={`optionChip ${selected ? 'active' : ''}`}
                                   key={option.value}
                                   data-category-chip-key={key}
                                   data-category-chip-value={option.value}
@@ -3799,10 +3633,6 @@ export default function HomePage() {
           border-radius: 22px;
         }
         .choiceSheetScrollable.normalChipGrid { touch-action: pan-y; }
-        .choiceSheetScrollable.dragging {
-          touch-action: none;
-          user-select: none;
-        }
         .optionChipGrid {
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
@@ -3828,42 +3658,12 @@ export default function HomePage() {
           color: #ffffff;
           box-shadow: 0 10px 22px rgba(46, 139, 212, 0.2);
         }
-        .dragOptionChip {
-          -webkit-tap-highlight-color: transparent;
-          touch-action: inherit;
-          transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
-        }
-        .dragOptionChip:hover,
-        .dragOptionChip:focus-visible {
-          border-color: #83bff2;
-          background: #f2f9ff;
-          box-shadow: 0 7px 16px rgba(47, 142, 216, 0.12);
-        }
-        .dragOptionChip.active:hover,
-        .dragOptionChip.active:focus-visible {
-          border-color: #2d8bd3;
-          background: linear-gradient(135deg, #2e8bd4 0%, #61b4ee 100%);
-          color: #ffffff;
-        }
         .choiceSheetActions {
           display: flex;
           justify-content: flex-end;
           gap: 10px;
           padding: 2px 0 max(6px, env(safe-area-inset-bottom));
           align-items: center;
-        }
-        .dragSelectToggle {
-          min-height: 36px;
-          border: 1px solid #cfe0f5;
-          border-radius: 999px;
-          background: rgba(255,255,255,0.7);
-          color: #607b9d;
-          font-weight: 900;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 0.82rem;
-          box-shadow: none;
         }
         .chipFilterGrid {
           display: grid;
