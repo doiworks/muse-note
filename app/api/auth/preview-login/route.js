@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server';
+import { getSupabaseAdmin } from '../../../../lib/supabaseAdmin';
+import { PREVIEW_APP_USER_ID } from '../../../../lib/auth/appSession';
 import {
   PREVIEW_SESSION_COOKIE_NAME,
   createPreviewSessionCookieValue,
@@ -8,8 +10,6 @@ import {
 } from '../../../../lib/auth/previewSession';
 
 export async function POST(request) {
-  // 開発確認用の仮ログインAPIです。
-  // ブラウザから受け取った token と、Vercel / .env.local の ADMIN_PREVIEW_TOKEN をサーバー側で比較します。
   const body = await request.json().catch(() => ({}));
   const inputToken = String(body.token || '');
 
@@ -19,16 +19,33 @@ export async function POST(request) {
       { status: 500 }
     );
   }
-
   if (!isValidPreviewToken(inputToken)) {
     return NextResponse.json({ error: '仮ログイントークンが正しくありません。' }, { status: 401 });
   }
 
-  const response = NextResponse.json({ ok: true });
-  const cookieValue = await createPreviewSessionCookieValue();
+  try {
+    const now = new Date().toISOString();
+    const supabaseAdmin = getSupabaseAdmin();
+    const { error } = await supabaseAdmin.from('app_users').upsert(
+      {
+        id: PREVIEW_APP_USER_ID,
+        line_user_id: 'dev_preview_user',
+        display_name: '開発確認ユーザー',
+        role: 'user',
+        status: 'active',
+        last_login_at: now,
+        updated_at: now
+      },
+      { onConflict: 'line_user_id' }
+    );
+    if (error) throw error;
 
-  // httpOnly cookie にすることで、JavaScript から cookie の中身を読めないようにします。
-  response.cookies.set(PREVIEW_SESSION_COOKIE_NAME, cookieValue, getPreviewSessionCookieOptions());
-
-  return response;
+    const response = NextResponse.json({ ok: true });
+    const cookieValue = await createPreviewSessionCookieValue();
+    response.cookies.set(PREVIEW_SESSION_COOKIE_NAME, cookieValue, getPreviewSessionCookieOptions());
+    return response;
+  } catch (error) {
+    console.error('Preview login failed:', error);
+    return NextResponse.json({ error: '仮ログインに失敗しました。' }, { status: 500 });
+  }
 }
