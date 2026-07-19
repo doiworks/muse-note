@@ -96,6 +96,8 @@ npm run dev
 5. `app_users.id` を含む署名済みhttpOnly Cookieを発行
 6. APIがCookieから `app_user_id` を取得
 
+認可スコープは `openid profile` のみです。LINEの表示名とプロフィール画像を取得しますが、メールアドレスは要求しません。
+
 ## セキュリティ
 
 - `SUPABASE_SERVICE_ROLE_KEY` と `LINE_CHANNEL_SECRET` はサーバー側だけで使用します。
