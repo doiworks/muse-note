@@ -399,6 +399,7 @@ export default function HomePage() {
   const intervalRef = useRef(null);
   const voicesRef = useRef([]);
   const gameRef = useRef(INITIAL_GAME);
+  const fairReservationRef = useRef(null);
   const audioContextRef = useRef(null);
   const v2PrefetchRef = useRef({ key: '', promise: null, data: null });
   const v2OpenStartedAtRef = useRef(0);
@@ -661,55 +662,32 @@ export default function HomePage() {
       ? availableWords.filter((word) => Number(word.stats?.mistake_count ?? 0) > 0)
       : availableWords;
 
-    const rankedWords = [...sourceWords].sort((a, b) => {
-      const randomTie = Math.random() - 0.5;
-      const isUnseenA = !a.stats;
-      const isUnseenB = !b.stats;
-      const attemptCountA = Number(a.stats?.attempt_count ?? 0);
-      const attemptCountB = Number(b.stats?.attempt_count ?? 0);
-      const recencyA = Date.parse(a.last_answered_at || a.stats?.updated_at || '') || 0;
-      const recencyB = Date.parse(b.last_answered_at || b.stats?.updated_at || '') || 0;
-
-      if (questionMode === 'wrong') {
-        const mistakeA = Number(a.stats?.mistake_count ?? 0);
-        const mistakeB = Number(b.stats?.mistake_count ?? 0);
-        const accuracyA = Number(a.stats?.accuracy ?? 100);
-        const accuracyB = Number(b.stats?.accuracy ?? 100);
-        const hasLastWrongA = Boolean(a.stats?.last_wrong);
-        const hasLastWrongB = Boolean(b.stats?.last_wrong);
-        const lastWrongA = Date.parse(a.stats?.last_wrong || '') || 0;
-        const lastWrongB = Date.parse(b.stats?.last_wrong || '') || 0;
-        const importantWrongA = Number(a.importance) === 1 && mistakeA > 0;
-        const importantWrongB = Number(b.importance) === 1 && mistakeB > 0;
-
-        if (mistakeA !== mistakeB) return mistakeB - mistakeA;
-        if (accuracyA !== accuracyB) return accuracyA - accuracyB;
-        if (hasLastWrongA !== hasLastWrongB) return hasLastWrongA ? -1 : 1;
-        if (lastWrongA !== lastWrongB) return lastWrongB - lastWrongA;
-        if (importantWrongA !== importantWrongB) return importantWrongA ? -1 : 1;
-        if (attemptCountA !== attemptCountB) return attemptCountA - attemptCountB;
-        if (recencyA !== recencyB) return recencyA - recencyB;
-        return randomTie;
-      }
-
-      // balanced / select fallback: prioritize unseen, then low attempts, then older recency.
-      if (isUnseenA !== isUnseenB) return isUnseenA ? -1 : 1;
-      if (attemptCountA !== attemptCountB) return attemptCountA - attemptCountB;
-      if (recencyA !== recencyB) return recencyA - recencyB;
-      return randomTie;
-    });
+    // The server RPC already returns the least-presented tier in randomized order.
+    const rankedWords = sourceWords;
 
     const target = requestedCount > 0 ? Math.min(requestedCount, rankedWords.length) : rankedWords.length;
     return { quizWords: rankedWords.slice(0, target), targetCount: target };
   }
 
-  function startQuestion(nextState) {
+  async function startQuestion(nextState) {
     clearAllTimers();
     const word = nextState.quizWords[nextState.currentIndex];
+    const reservationId = nextState.reservationId || fairReservationRef.current;
+    if (!nextState.explicitReview) {
+      try {
+        const response = await fetch('/api/quiz/present', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ reservation_id:reservationId, word_id:word?.id }) });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || '出題状態を保存できませんでした。');
+      } catch (error) {
+        setGame((prev) => ({ ...prev, screen:'intro', state:'idle', isLoading:false, errorMessage:error.message || '出題状態を保存できませんでした。再試行してください。' }));
+        return;
+      }
+    }
     const now = Date.now();
 
     const askingGame = {
       ...nextState,
+      reservationId,
       screen: 'game',
       state: 'asking',
       answer: '',
@@ -743,23 +721,13 @@ export default function HomePage() {
   }
 
   async function fetchWords(requestedCount = null, questionMode = 'balanced') {
-    console.time?.('fetchWords');
-    try {
-      const requested =
-        Number.isFinite(requestedCount) && requestedCount > 0 ? Math.floor(requestedCount) : MIN_CANDIDATE_FETCH;
-      const candidateLimit = Math.max(MIN_CANDIDATE_FETCH, requested);
-      const safeLimit = Math.min(candidateLimit, MAX_FETCH_LIMIT);
-      const serverMode = questionMode === 'wrong' ? 'wrong' : 'balanced';
-      const query = `?limit=${safeLimit}&offset=0&mode=${serverMode}`;
-      const response = await fetch(`/api/words${query}`);
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(data.error || '単語データの取得に失敗しました。時間をおいて再度お試しください。');
-      }
-      return data.words || [];
-    } finally {
-      console.timeEnd?.('fetchWords');
-    }
+    const requested = Number.isFinite(requestedCount) && requestedCount > 0 ? Math.floor(requestedCount) : MIN_CANDIDATE_FETCH;
+    const data = await fetchJsonWithTimeout('/api/word-picker/quiz-selection', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestedCount: requested, mode: questionMode === 'wrong' ? 'wrong' : 'balanced' })
+    });
+    fairReservationRef.current = data.reservation_id;
+    return data.words || [];
   }
 
   async function handleQuestionModeChange(questionMode) {
@@ -1023,10 +991,20 @@ export default function HomePage() {
         excludedIds: sourceGame.selectionMode === 'allMatching' ? sourceGame.excludedWordIds : []
       })
     });
+    fairReservationRef.current = data.reservation_id;
     return data.words || [];
   }
 
-  async function handleStart(selectedWords = null, forcedQuestionMode = null) {
+  async function reserveExplicitWords(words, requestedCount, sourceGame) {
+    const data = await fetchJsonWithTimeout('/api/word-picker/quiz-selection', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestedCount: requestedCount || words.length, mode: sourceGame.questionMode || 'select', wordIds: words.map((word) => word.id), wordSetId: sourceGame.selectedWordSetId || undefined })
+    });
+    fairReservationRef.current = data.reservation_id;
+    return data.words || [];
+  }
+
+  async function handleStart(selectedWords = null, forcedQuestionMode = null, alreadyReserved = false) {
     const current = gameRef.current;
     const activeQuestionMode = forcedQuestionMode || current.questionMode;
     const mode = current.mode || 'normal';
@@ -1044,7 +1022,9 @@ export default function HomePage() {
     setGame((prev) => ({ ...prev, mode, isLoading: true, errorMessage: '' }));
 
     try {
-      const words = selectedWords || (await fetchWords(safeRequestedCount, activeQuestionMode));
+      const words = selectedWords
+        ? (alreadyReserved ? selectedWords : await reserveExplicitWords(selectedWords, safeRequestedCount, { ...current, questionMode: activeQuestionMode }))
+        : await fetchWords(safeRequestedCount, activeQuestionMode);
 
       console.time?.('prepareWords');
       const { quizWords, targetCount } = prepareWords(words, safeRequestedCount, activeQuestionMode);
@@ -1245,8 +1225,11 @@ export default function HomePage() {
       const words = current.questionMode === 'select'
         ? (current.words.length ? current.words : await fetchSelectedWordsByIds(current.selectedWordIds))
         : await fetchWords(safeRequestedCount, current.questionMode);
+      const reservedWords = current.questionMode === 'select'
+        ? await reserveExplicitWords(words, safeRequestedCount, current)
+        : words;
       console.time?.('prepareWords');
-      const { quizWords, targetCount } = prepareWords(words, safeRequestedCount, current.questionMode);
+      const { quizWords, targetCount } = prepareWords(reservedWords, safeRequestedCount, current.questionMode);
       console.timeEnd?.('prepareWords');
       if (!targetCount) {
         const wrongEmpty = current.questionMode === 'wrong';
@@ -1300,6 +1283,7 @@ export default function HomePage() {
     if (!current.quizWords.length) return;
     startQuestion({
       ...INITIAL_GAME,
+      explicitReview: true,
       userName: current.userName,
       countInput: current.countInput,
       mode: current.mode,
@@ -1390,7 +1374,7 @@ export default function HomePage() {
         ? await fetchQuizSelectionWords(current, safeRequestedCount)
         : await fetchSelectedWordsByIds(current.selectedWordIds);
       if (!selectedWords.length) throw new Error('この条件に合う単語がありません。');
-      await handleStart(selectedWords, 'select');
+      await handleStart(selectedWords, 'select', true);
     } catch (error) {
       setGame((prev) => ({ ...prev, isLoading: false, errorMessage: error.message || '選択した単語の取得に失敗しました。' }));
     } finally {
@@ -1990,10 +1974,10 @@ export default function HomePage() {
               </div>
               <div className="retryActions">
                 <button className="retryBtn primary" type="button" onClick={handleRetry} disabled={game.isLoading}>
-                  {game.isLoading ? '読み込み中...' : '次の問題へ'}
+                  {game.isLoading ? '読み込み中...' : '次の問題へ（均一出題を続ける）'}
                 </button>
                 <button className="retryBtn secondary" type="button" onClick={handleRetrySameWords}>
-                  もう一度
+                  もう一度（同じ問題を復習）
                 </button>
                 <button className="retryBtn tertiary" type="button" onClick={() => setGame((prev) => ({ ...prev, screen: 'intro', state: 'idle' }))}>
                   設定

@@ -10,7 +10,7 @@ function createErrorResponse(message, status) {
 
 function parseWordId(value) {
   const wordId = Number(value);
-  return Number.isInteger(wordId) && wordId > 0 ? wordId : null;
+  return Number.isInteger(wordId) && wordId >= 0 ? wordId : null;
 }
 
 async function updateStatsAfterHistorySave({ supabaseAdmin, appUserId, wordId, correct, answeredAt }) {
@@ -64,7 +64,7 @@ export async function POST(request) {
   const wordId = parseWordId(body?.word_id ?? body?.wordId);
   const answer = typeof body?.answer === 'string' ? body.answer : '';
   const correct = body?.correct;
-  if (!wordId || typeof correct !== 'boolean') {
+  if (wordId === null || typeof correct !== 'boolean') {
     return createErrorResponse('word_id と correct は必須です。', 400);
   }
 
