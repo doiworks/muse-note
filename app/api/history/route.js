@@ -64,6 +64,7 @@ export async function POST(request) {
   const wordId = parseWordId(body?.word_id ?? body?.wordId);
   const answer = typeof body?.answer === 'string' ? body.answer : '';
   const correct = body?.correct;
+  const studySessionId = typeof body?.study_session_id === 'string' ? body.study_session_id : null;
   if (wordId === null || typeof correct !== 'boolean') {
     return createErrorResponse('word_id と correct は必須です。', 400);
   }
@@ -71,11 +72,20 @@ export async function POST(request) {
   try {
     const supabaseAdmin = getSupabaseAdmin();
     const answeredAt = new Date().toISOString();
+    if (studySessionId) {
+      const { data: studySession, error: studySessionError } = await supabaseAdmin
+        .from('study_sessions').select('id,status').eq('id', studySessionId)
+        .eq('app_user_id', session.appUserId).eq('status', 'in_progress').maybeSingle();
+      if (studySessionError || !studySession) {
+        return createErrorResponse('有効な学習セッションが見つかりません。', 400);
+      }
+    }
     const { error } = await supabaseAdmin.from('history').insert({
       app_user_id: session.appUserId,
       word_id: wordId,
       answer,
       correct,
+      study_session_id: studySessionId,
       answered_at: answeredAt
     });
 

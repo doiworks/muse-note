@@ -39,12 +39,25 @@ create table if not exists public.words (
   text text
 );
 
+create table if not exists public.study_sessions (
+  id uuid primary key default gen_random_uuid(),
+  app_user_id uuid not null references public.app_users(id) on delete cascade,
+  status text not null default 'in_progress' check (status in ('in_progress', 'completed', 'interrupted')),
+  completed_questions int not null default 0,
+  total_questions int not null check (total_questions > 0),
+  correct_count int not null default 0,
+  wrong_count int not null default 0,
+  started_at timestamptz not null default now(),
+  ended_at timestamptz
+);
+
 create table if not exists public.history (
   id bigint generated always as identity primary key,
   app_user_id uuid not null references public.app_users(id) on delete cascade,
   word_id bigint not null references public.words(id) on delete cascade,
   answer text not null default '',
   correct boolean not null,
+  study_session_id uuid references public.study_sessions(id) on delete set null,
   answered_at timestamptz not null default now()
 );
 
@@ -82,6 +95,8 @@ create table if not exists public.word_set_items (
 
 create index if not exists idx_history_app_user_id on public.history(app_user_id);
 create index if not exists idx_history_word_id on public.history(word_id);
+create index if not exists idx_history_study_session_id on public.history(study_session_id);
+create index if not exists idx_study_sessions_app_user_id on public.study_sessions(app_user_id);
 create index if not exists idx_stats_app_user_id on public.stats(app_user_id);
 create index if not exists idx_stats_word_id on public.stats(word_id);
 create index if not exists idx_word_sets_app_user_id on public.word_sets(app_user_id);
@@ -90,6 +105,7 @@ create index if not exists idx_word_set_items_word_set_id on public.word_set_ite
 alter table public.app_users enable row level security;
 alter table public.words enable row level security;
 alter table public.history enable row level security;
+alter table public.study_sessions enable row level security;
 alter table public.stats enable row level security;
 alter table public.word_sets enable row level security;
 alter table public.word_set_items enable row level security;
@@ -97,6 +113,7 @@ alter table public.word_set_items enable row level security;
 revoke all on table public.app_users from anon, authenticated;
 revoke all on table public.words from anon, authenticated;
 revoke all on table public.history from anon, authenticated;
+revoke all on table public.study_sessions from anon, authenticated;
 revoke all on table public.stats from anon, authenticated;
 revoke all on table public.word_sets from anon, authenticated;
 revoke all on table public.word_set_items from anon, authenticated;
@@ -105,6 +122,7 @@ grant usage on schema public to service_role;
 grant all on table public.app_users to service_role;
 grant select on table public.words to service_role;
 grant all on table public.history to service_role;
+grant all on table public.study_sessions to service_role;
 grant all on table public.stats to service_role;
 grant all on table public.word_sets to service_role;
 grant all on table public.word_set_items to service_role;
