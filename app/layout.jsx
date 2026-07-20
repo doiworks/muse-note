@@ -2,6 +2,8 @@
 // これが無いと、Vercel build で
 // "page.jsx doesn't have a root layout" エラーになります。
 
+import QuizKeyboardContinuity from './QuizKeyboardContinuity';
+
 // 全ページ共通のメタ情報（タブ名など）です。
 export const metadata = {
   title: 'Muse Note',
@@ -14,6 +16,7 @@ export default function RootLayout({ children }) {
   return (
     <html lang="ja">
       <body>
+        <QuizKeyboardContinuity />
         {children}
       </body>
     </html>
