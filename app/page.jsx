@@ -392,9 +392,13 @@ export default function HomePage() {
   const [game, setGame] = useState(INITIAL_GAME);
   const [currentUser, setCurrentUser] = useState(null);
   const [isSessionLoading, setIsSessionLoading] = useState(true);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [openCategoryKey, setOpenCategoryKey] = useState('');
   const [categorySearch, setCategorySearch] = useState({});
   const answerRef = useRef(null);
+  const resultRef = useRef(null);
+  const userMenuRef = useRef(null);
+  const shouldRevealResultRef = useRef(false);
   const timersRef = useRef([]);
   const intervalRef = useRef(null);
   const voicesRef = useRef([]);
@@ -508,6 +512,65 @@ export default function HomePage() {
       answerRef.current?.focus({ preventScroll: true });
     }
   }, [game.screen, game.state, game.currentIndex]);
+
+  useEffect(() => {
+    if (!game.result || !shouldRevealResultRef.current || typeof window === 'undefined') return undefined;
+
+    const viewport = window.visualViewport;
+    let settleTimer;
+    let fallbackTimer;
+    let frameId;
+
+    const revealIfNeeded = () => {
+      if (!shouldRevealResultRef.current) return;
+      frameId = window.requestAnimationFrame(() => {
+        frameId = window.requestAnimationFrame(() => {
+          if (!shouldRevealResultRef.current) return;
+          const resultElement = resultRef.current;
+          if (!resultElement) return;
+          const rect = resultElement.getBoundingClientRect();
+          const viewportTop = viewport?.offsetTop || 0;
+          const viewportBottom = viewportTop + (viewport?.height || window.innerHeight);
+          const isFullyVisible = rect.top >= viewportTop && rect.bottom <= viewportBottom;
+          if (!isFullyVisible) {
+            resultElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+          shouldRevealResultRef.current = false;
+        });
+      });
+    };
+
+    const waitForViewport = () => {
+      window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(revealIfNeeded, 120);
+    };
+
+    viewport?.addEventListener('resize', waitForViewport);
+    waitForViewport();
+    fallbackTimer = window.setTimeout(revealIfNeeded, 450);
+
+    return () => {
+      viewport?.removeEventListener('resize', waitForViewport);
+      window.clearTimeout(settleTimer);
+      window.clearTimeout(fallbackTimer);
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [game.result]);
+
+  useEffect(() => {
+    if (!isUserMenuOpen) return undefined;
+    function closeUserMenu(event) {
+      if (event.key === 'Escape' || (event.type === 'pointerdown' && !userMenuRef.current?.contains(event.target))) {
+        setIsUserMenuOpen(false);
+      }
+    }
+    document.addEventListener('pointerdown', closeUserMenu);
+    document.addEventListener('keydown', closeUserMenu);
+    return () => {
+      document.removeEventListener('pointerdown', closeUserMenu);
+      document.removeEventListener('keydown', closeUserMenu);
+    };
+  }, [isUserMenuOpen]);
 
   useEffect(() => () => clearAllTimers(), []);
   useEffect(() => {
@@ -1139,6 +1202,8 @@ export default function HomePage() {
     const judged = createJudgedGame(gameRef.current, value);
     if (!judged) return;
 
+    answerRef.current?.blur();
+    shouldRevealResultRef.current = true;
     clearAllTimers();
     const { nextGame, isCorrect, isLast, word } = judged;
     const timing = MODE_TIMING[nextGame.mode] || MODE_TIMING.normal;
@@ -1778,20 +1843,35 @@ export default function HomePage() {
           <div className="intro">
             <div className="topBar">
               <div className="logo large">Muse Note</div>
-              <div className="accountArea">
-                <div className="profileIdentity">
+              <div className="accountArea" ref={userMenuRef}>
+                <button
+                  type="button"
+                  className="profileMenuButton"
+                  aria-label="ユーザーメニューを開く"
+                  aria-haspopup="menu"
+                  aria-expanded={isUserMenuOpen}
+                  onClick={() => setIsUserMenuOpen((open) => !open)}
+                >
                   {currentUser?.picture_url ? (
                     <img className="profileImage" src={currentUser.picture_url} alt="" referrerPolicy="no-referrer" />
                   ) : (
                     <span className="profileImage profileImageFallback" aria-hidden="true">●</span>
                   )}
-                  <span className="profileName">{currentUser?.display_name || '読み込み中...'}</span>
-                </div>
-                <button type="button" className="logoutBtn" onClick={handleLogout}>
-                  ログアウト
+                  <span className="profileMenuDots" aria-hidden="true">⋮</span>
                 </button>
+                {isUserMenuOpen && (
+                  <div className="userMenu" role="menu">
+                    <div className="userMenuName">{currentUser?.display_name || 'LINEユーザー'}</div>
+                    <div className="userMenuFutureItems" aria-hidden="true" />
+                    <div className="userMenuDivider" />
+                    <button type="button" className="userMenuLogout" role="menuitem" onClick={handleLogout}>
+                      ログアウト
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
+            <p className="userGreeting">{currentUser?.display_name || 'LINEユーザー'}さん</p>
             <div className="inputRow">
               <input
                 className="countInput"
@@ -1889,7 +1969,7 @@ export default function HomePage() {
               </button>
 
               {game.result && (
-                <div className="resultArea" aria-live="polite">
+                <div className="resultArea" ref={resultRef} aria-live="polite">
                   {game.result.correct ? (
                     <div className="compare">
                       <div className="wordLine">
@@ -2341,21 +2421,27 @@ export default function HomePage() {
           margin-bottom: 1.25rem;
         }
         .accountArea {
+          position: relative;
           display: flex;
           align-items: center;
           justify-content: flex-end;
           gap: 8px;
           min-width: 0;
         }
-        .profileIdentity {
+        .profileMenuButton {
           display: flex;
           align-items: center;
-          gap: 7px;
-          min-width: 0;
-          padding: 4px 8px 4px 4px;
-          border: 1px solid #e3ebf7;
+          gap: 3px;
+          padding: 2px;
+          border: 0;
           border-radius: 999px;
-          background: #f8fbff;
+          background: transparent;
+          color: #7c91b0;
+          cursor: pointer;
+        }
+        .profileMenuButton:focus-visible {
+          outline: 2px solid #a8c9f0;
+          outline-offset: 3px;
         }
         .profileImage {
           width: 32px;
@@ -2371,13 +2457,60 @@ export default function HomePage() {
           background: #e8f8ee;
           font-size: 16px;
         }
-        .profileName {
-          max-width: 112px;
+        .profileMenuDots {
+          font-size: 1rem;
+          line-height: 1;
+          opacity: 0.72;
+        }
+        .userGreeting {
+          margin: -0.35rem 0 1.25rem;
+          text-align: left;
+          font-size: 1rem;
+          font-weight: 600;
+        }
+        .userMenu {
+          position: absolute;
+          z-index: 20;
+          top: calc(100% + 8px);
+          right: 0;
+          width: 210px;
+          padding: 12px;
+          border: 1px solid #e3ebf7;
+          border-radius: 14px;
+          background: #ffffff;
+          box-shadow: 0 8px 22px rgba(80, 100, 150, 0.16);
+          text-align: left;
+        }
+        .userMenuName {
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
-          font-size: 0.86rem;
-          font-weight: 600;
+          padding: 3px 5px 10px;
+          font-weight: 700;
+        }
+        .userMenuFutureItems:empty {
+          display: none;
+        }
+        .userMenuDivider {
+          height: 1px;
+          margin: 2px 0 8px;
+          background: #e3ebf7;
+        }
+        .userMenuLogout {
+          width: 100%;
+          padding: 8px 5px;
+          border: 0;
+          background: transparent;
+          color: #4f6b94;
+          font: inherit;
+          text-align: left;
+          cursor: pointer;
+          border-radius: 8px;
+        }
+        .userMenuLogout:hover,
+        .userMenuLogout:focus-visible {
+          background: #f6f9ff;
+          outline: none;
         }
 
         .gameHeader {
@@ -4359,6 +4492,7 @@ export default function HomePage() {
           width: 100%;
           min-height: 92px;
           margin-top: 1rem;
+          scroll-margin: 72px 0;
         }
 
         .compare {
@@ -4730,14 +4864,6 @@ export default function HomePage() {
 
           .accountArea {
             gap: 6px;
-          }
-
-          .profileIdentity {
-            max-width: 150px;
-          }
-
-          .profileName {
-            max-width: 92px;
           }
 
           .logo.large {
