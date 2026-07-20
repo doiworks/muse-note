@@ -1779,12 +1779,14 @@ export default function HomePage() {
             <div className="topBar">
               <div className="logo large">Muse Note</div>
               <div className="accountArea">
-                {currentUser?.picture_url ? (
-                  <img className="profileImage" src={currentUser.picture_url} alt="" referrerPolicy="no-referrer" />
-                ) : (
-                  <span className="profileImage profileImageFallback" aria-hidden="true">●</span>
-                )}
-                <span className="profileName">{currentUser?.display_name || '読み込み中...'}</span>
+                <div className="profileIdentity">
+                  {currentUser?.picture_url ? (
+                    <img className="profileImage" src={currentUser.picture_url} alt="" referrerPolicy="no-referrer" />
+                  ) : (
+                    <span className="profileImage profileImageFallback" aria-hidden="true">●</span>
+                  )}
+                  <span className="profileName">{currentUser?.display_name || '読み込み中...'}</span>
+                </div>
                 <button type="button" className="logoutBtn" onClick={handleLogout}>
                   ログアウト
                 </button>
@@ -1832,7 +1834,7 @@ export default function HomePage() {
             </div>
             <button
               type="button"
-              className="retryBtn primary"
+              className="retryBtn primary startButton"
               disabled={game.isLoading || isSessionLoading}
               onClick={() => (game.questionMode === 'select' ? void handleStartSelected() : handleStart())}
             >
@@ -2336,16 +2338,28 @@ export default function HomePage() {
         }
 
         .topBar {
-          margin-bottom: 0.5rem;
+          margin-bottom: 1.25rem;
         }
         .accountArea {
           display: flex;
           align-items: center;
-          gap: 10px;
+          justify-content: flex-end;
+          gap: 8px;
+          min-width: 0;
+        }
+        .profileIdentity {
+          display: flex;
+          align-items: center;
+          gap: 7px;
+          min-width: 0;
+          padding: 4px 8px 4px 4px;
+          border: 1px solid #e3ebf7;
+          border-radius: 999px;
+          background: #f8fbff;
         }
         .profileImage {
-          width: 36px;
-          height: 36px;
+          width: 32px;
+          height: 32px;
           border-radius: 50%;
           object-fit: cover;
           flex: 0 0 auto;
@@ -2358,11 +2372,12 @@ export default function HomePage() {
           font-size: 16px;
         }
         .profileName {
-          max-width: 180px;
+          max-width: 112px;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
-          font-weight: 700;
+          font-size: 0.86rem;
+          font-weight: 600;
         }
 
         .gameHeader {
@@ -2393,7 +2408,7 @@ export default function HomePage() {
         .inputRow {
           display: flex;
           gap: 10px;
-          margin-top: 0.6rem;
+          margin-top: 0;
         }
 
         .nameInput,
@@ -2409,12 +2424,12 @@ export default function HomePage() {
         }
 
         .modeButtons {
-          margin-top: 0.5rem;
+          margin-top: 0;
           display: flex;
-          gap: 10px;
+          gap: 8px;
         }
         .sectionLabel {
-          margin: 0.9rem 0 0.35rem;
+          margin: 1rem 0 0.5rem;
           font-weight: 700;
           color: #5a7498;
           text-align: left;
@@ -4283,9 +4298,11 @@ export default function HomePage() {
         }
 
         .logoutBtn {
-          padding: 0.55em 0.85em;
-          font-size: 0.9rem;
+          padding: 0.5em 0.65em;
+          font-size: 0.78rem;
           white-space: nowrap;
+          box-shadow: none;
+          background: #a8c9f0;
         }
 
         .gameArea {
@@ -4659,6 +4676,11 @@ export default function HomePage() {
           font-weight: 700;
           min-height: 46px;
         }
+        .startButton {
+          width: 100%;
+          min-height: 48px;
+          margin-top: 1rem;
+        }
         .retryBtn.secondary,
         .retryBtn.tertiary {
           border: 1px solid #c7d8f0;
@@ -4698,11 +4720,28 @@ export default function HomePage() {
             min-height: 100vh;
             border-radius: 0;
             box-shadow: none;
-            padding: 24px 16px 32px;
+            padding: 20px 16px 32px;
+          }
+
+          .topBar {
+            align-items: flex-start;
+            margin-bottom: 1rem;
+          }
+
+          .accountArea {
+            gap: 6px;
+          }
+
+          .profileIdentity {
+            max-width: 150px;
+          }
+
+          .profileName {
+            max-width: 92px;
           }
 
           .logo.large {
-            font-size: 8vw;
+            font-size: clamp(1.55rem, 7vw, 2rem);
           }
 
           .logo.small,
@@ -4726,24 +4765,19 @@ export default function HomePage() {
             margin-top: 1.2rem;
           }
 
-          .modeButtons,
-          .inputRow {
-            flex-direction: column;
-          }
-
           .modeButtons {
-            gap: 12px;
+            gap: 8px;
           }
 
           .questionModes {
-            grid-template-columns: 1fr;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
             gap: 8px;
           }
 
           .modeBtn,
           .nameInput,
           .countInput {
-            font-size: 5.2vw;
+            font-size: 1rem;
           }
 
           .retryPanel {
@@ -4882,7 +4916,7 @@ export default function HomePage() {
         }
         @media (max-width: 600px) {
           .questionModes {
-            grid-template-columns: 1fr;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
             gap: 8px;
           }
           button.quizMethodCard {
