@@ -397,6 +397,7 @@ export default function HomePage() {
   const [categorySearch, setCategorySearch] = useState({});
   const answerRef = useRef(null);
   const resultRef = useRef(null);
+  const answerControlsRef = useRef(null);
   const userMenuRef = useRef(null);
   const shouldRevealResultRef = useRef(false);
   const timersRef = useRef([]);
@@ -527,14 +528,20 @@ export default function HomePage() {
         frameId = window.requestAnimationFrame(() => {
           if (!shouldRevealResultRef.current) return;
           const resultElement = resultRef.current;
-          if (!resultElement) return;
-          const rect = resultElement.getBoundingClientRect();
+          const answerControls = answerControlsRef.current;
+          if (!resultElement || !answerControls) return;
+          const resultRect = resultElement.getBoundingClientRect();
+          const controlsRect = answerControls.getBoundingClientRect();
           const viewportTop = viewport?.offsetTop || 0;
           const viewportBottom = viewportTop + (viewport?.height || window.innerHeight);
-          const isFullyVisible = rect.top >= viewportTop && rect.bottom <= viewportBottom;
+          const isFullyVisible = resultRect.top >= viewportTop && controlsRect.bottom <= viewportBottom;
           if (!isFullyVisible) {
-            resultElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            const scrollDelta = resultRect.top < viewportTop
+              ? resultRect.top - viewportTop
+              : controlsRect.bottom - viewportBottom;
+            window.scrollBy({ top: scrollDelta, behavior: 'smooth' });
           }
+          answerRef.current?.focus({ preventScroll: true });
           shouldRevealResultRef.current = false;
         });
       });
@@ -1202,11 +1209,9 @@ export default function HomePage() {
     const judged = createJudgedGame(gameRef.current, value);
     if (!judged) return;
 
-    answerRef.current?.blur();
     shouldRevealResultRef.current = true;
     clearAllTimers();
-    const { nextGame, isCorrect, isLast, word } = judged;
-    const timing = MODE_TIMING[nextGame.mode] || MODE_TIMING.normal;
+    const { nextGame, isCorrect, word } = judged;
     gameRef.current = nextGame;
     setGame(nextGame);
 
@@ -1221,20 +1226,9 @@ export default function HomePage() {
       playWrongSound();
     }
 
-    if (isLast) {
-      addTimer(() => {
-        console.time?.('result screen transition');
-        setGame((current) => ({ ...current, screen: 'result', state: 'finished', showCircle: false, now: Date.now() }));
-        console.timeEnd?.('result screen transition');
-      }, (isCorrect ? timing.nextFast : timing.nextSlow) * 1000);
-      return;
-    }
-
-    addTimer(() => {
-      const current = gameRef.current;
-      if (current.state !== 'judged') return;
-      startQuestion({ ...current, currentIndex: current.currentIndex + 1, showCircle: false });
-    }, (isCorrect ? timing.nextFast : timing.nextSlow) * 1000);
+    // Keep the judged result on screen until the learner explicitly chooses Next.
+    // The input remains focused and read-only so a mobile keyboard stays open without
+    // allowing the already-scored answer to be changed.
   }
 
   function handleAnswerChange(event) {
@@ -1951,47 +1945,48 @@ export default function HomePage() {
                 {currentWord?.japanese || '読み込み中...'}
               </button>
               {game.showPhonetic && currentWord?.phonetic && <div className="hintIpa">{currentWord.phonetic}</div>}
-              <input
-                ref={answerRef}
-                className="answerInput"
-                value={game.answer}
-                onChange={handleAnswerChange}
-                onKeyDown={handleAnswerKeyDown}
-                inputMode="latin"
-                autoComplete="off"
-                autoCapitalize="none"
-                spellCheck="false"
-                disabled={game.state !== 'asking'}
-                aria-label="英単語の回答"
-              />
-              <button className="answerBtn" type="button" onClick={handleAnswerButton}>
-                {game.state === 'asking' ? 'Answer ▶' : 'Next ▶'}
-              </button>
-
-              {game.result && (
+              <div className="answerControls" ref={answerControlsRef}>
                 <div className="resultArea" ref={resultRef} aria-live="polite">
-                  {game.result.correct ? (
-                    <div className="compare">
-                      <div className="wordLine">
-                        <span className="wordCorrect">✔ {game.result.word.english}</span>
-                        {game.result.word.phonetic && <span className="ipa">{game.result.word.phonetic}</span>}
-                      </div>
-                      <div className="feedback correct">正解です！</div>
-                    </div>
-                  ) : (
-                    <div className="compare">
-                      <div className="feedback wrong">不正解です</div>
-                      <div className="wordLine">
-                        正 <span className="wordCorrect">{game.result.word.english}</span>
-                        {game.result.word.phonetic && <span className="ipa">{game.result.word.phonetic}</span>}
-                      </div>
-                      <div className="wordLine">
-                        答 <span className="wordInput"><DiffText answer={game.result.answer} correct={game.result.word.english} /></span>
-                      </div>
-                    </div>
+                  {game.result && (
+                    game.result.correct ? (
+                        <div className="compare">
+                          <div className="wordLine">
+                            <span className="wordCorrect">✔ {game.result.word.english}</span>
+                            {game.result.word.phonetic && <span className="ipa">{game.result.word.phonetic}</span>}
+                          </div>
+                          <div className="feedback correct">正解です！</div>
+                        </div>
+                      ) : (
+                        <div className="compare">
+                          <div className="feedback wrong">不正解です</div>
+                          <div className="wordLine">
+                            正 <span className="wordCorrect">{game.result.word.english}</span>
+                            {game.result.word.phonetic && <span className="ipa">{game.result.word.phonetic}</span>}
+                          </div>
+                          <div className="wordLine">
+                            答 <span className="wordInput"><DiffText answer={game.result.answer} correct={game.result.word.english} /></span>
+                          </div>
+                        </div>
+                      )
                   )}
                 </div>
-              )}
+                <input
+                  ref={answerRef}
+                  className="answerInput"
+                  value={game.answer}
+                  onChange={handleAnswerChange}
+                  onKeyDown={handleAnswerKeyDown}
+                  inputMode="latin"
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  spellCheck="false"
+                  readOnly={game.state !== 'asking'}
+                  aria-label="英単語の回答"
+                />
+                <button className="answerBtn" type="button" onClick={handleAnswerButton}>
+                  {game.state === 'asking' ? 'Answer ▶' : 'Next ▶'}
+                </button>
+              </div>
             </div>
           </>
         )}
@@ -4462,6 +4457,14 @@ export default function HomePage() {
           font-size: 0.95rem;
         }
 
+        .answerControls {
+          display: flex;
+          width: 100%;
+          flex-direction: column;
+          align-items: center;
+          scroll-margin: 12px 0;
+        }
+
         .answerInput {
           width: min(100%, 340px);
           margin-top: 0;
@@ -4475,7 +4478,7 @@ export default function HomePage() {
           color: #333;
         }
 
-        .answerInput:disabled {
+        .answerInput:read-only {
           color: #777;
           opacity: 1;
         }
@@ -4491,8 +4494,7 @@ export default function HomePage() {
         .resultArea {
           width: 100%;
           min-height: 92px;
-          margin-top: 1rem;
-          scroll-margin: 72px 0;
+          margin-top: 0.5rem;
         }
 
         .compare {
