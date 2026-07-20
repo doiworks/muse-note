@@ -2,6 +2,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { flushSync } from 'react-dom';
 
 const MODE_TIMING = {
   fast: {
@@ -127,6 +128,8 @@ const INITIAL_GAME = {
   isLoading: false,
   showCircle: false,
   showPhonetic: false,
+  studySessionId: null,
+  sessionStatus: null,
   wrongModeFallbackAvailable: false
 };
 
@@ -393,6 +396,8 @@ export default function HomePage() {
   const [currentUser, setCurrentUser] = useState(null);
   const [isSessionLoading, setIsSessionLoading] = useState(true);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [isEndingSession, setIsEndingSession] = useState(false);
   const [openCategoryKey, setOpenCategoryKey] = useState('');
   const [categorySearch, setCategorySearch] = useState({});
   const answerRef = useRef(null);
@@ -409,6 +414,7 @@ export default function HomePage() {
   const v2PrefetchRef = useRef({ key: '', promise: null, data: null });
   const v2OpenStartedAtRef = useRef(0);
   const categoryOptionsRequestIdRef = useRef(0);
+  const pendingHistorySavesRef = useRef(new Set());
   const currentWord = game.quizWords[game.currentIndex] || null;
   const totalElapsed = game.now && game.totalStart ? game.now - game.totalStart : 0;
   const questionElapsed = game.now && game.questionStart ? game.now - game.questionStart : 0;
@@ -448,6 +454,25 @@ export default function HomePage() {
   useEffect(() => {
     gameRef.current = game;
   }, [game]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const viewport = window.visualViewport;
+    const updateViewport = () => {
+      const root = document.documentElement;
+      root.style.setProperty('--quiz-viewport-height', `${viewport?.height || window.innerHeight}px`);
+      root.style.setProperty('--quiz-viewport-top', `${viewport?.offsetTop || 0}px`);
+    };
+    updateViewport();
+    viewport?.addEventListener('resize', updateViewport);
+    viewport?.addEventListener('scroll', updateViewport);
+    window.addEventListener('resize', updateViewport);
+    return () => {
+      viewport?.removeEventListener('resize', updateViewport);
+      viewport?.removeEventListener('scroll', updateViewport);
+      window.removeEventListener('resize', updateViewport);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -553,11 +578,13 @@ export default function HomePage() {
     };
 
     viewport?.addEventListener('resize', waitForViewport);
+    viewport?.addEventListener('scroll', waitForViewport);
     waitForViewport();
     fallbackTimer = window.setTimeout(revealIfNeeded, 450);
 
     return () => {
       viewport?.removeEventListener('resize', waitForViewport);
+      viewport?.removeEventListener('scroll', waitForViewport);
       window.clearTimeout(settleTimer);
       window.clearTimeout(fallbackTimer);
       window.cancelAnimationFrame(frameId);
@@ -1089,7 +1116,10 @@ export default function HomePage() {
     const requestedCount = Number(current.countInput);
     const safeRequestedCount = Number.isFinite(requestedCount) && requestedCount > 0 ? Math.floor(requestedCount) : 0;
 
-    setGame((prev) => ({ ...prev, mode, isLoading: true, errorMessage: '' }));
+    // Commit the stable input during the Start tap. iOS only opens its keyboard
+    // when focus is part of the original user activation, not after the fetch.
+    flushSync(() => setGame((prev) => ({ ...prev, screen: 'game', state: 'loading', mode, isLoading: true, errorMessage: '' })));
+    answerRef.current?.focus({ preventScroll: true });
 
     try {
       const words = selectedWords
@@ -1103,12 +1133,18 @@ export default function HomePage() {
         const wrongEmpty = activeQuestionMode === 'wrong';
         setGame((prev) => ({
           ...prev,
-          isLoading: false,
+          screen: 'intro', state: 'idle', isLoading: false,
           wrongModeFallbackAvailable: wrongEmpty,
           errorMessage: wrongEmpty ? '間違えた単語はまだありません' : '出題できる単語がありません。'
         }));
         return;
       }
+
+      const sessionResponse = await fetch('/api/study-sessions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ total_questions: targetCount })
+      });
+      const sessionData = await sessionResponse.json().catch(() => ({}));
+      if (!sessionResponse.ok) throw new Error(sessionData.error || '学習セッションを開始できませんでした。');
 
       startQuestion({
         ...INITIAL_GAME,
@@ -1135,13 +1171,15 @@ export default function HomePage() {
         filters: current.filters,
         quizWords,
         targetCount,
+        studySessionId: sessionData.session.id,
+        sessionStatus: 'in_progress',
         totalStart: Date.now(),
         now: Date.now()
       });
     } catch (error) {
       setGame((prev) => ({
         ...prev,
-        isLoading: false,
+        screen: 'intro', state: 'idle', isLoading: false,
         wrongModeFallbackAvailable: false,
         errorMessage: error.message || '単語データの取得に失敗しました。時間をおいて再度お試しください。'
       }));
@@ -1154,24 +1192,67 @@ export default function HomePage() {
     console.time?.('saveAnswerHistory');
     if (word?.id === null || word?.id === undefined) return;
 
-    try {
+    const savePromise = (async () => {
       const response = await fetch('/api/history', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           word_id: word.id,
           answer,
-          correct
+          correct,
+          study_session_id: gameRef.current.studySessionId
         })
       });
 
       if (!response.ok) {
-        console.warn('Answer history was not saved.');
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || '回答履歴を保存できませんでした。');
       }
-    } catch {
-      console.warn('Answer history was not saved.');
+      return true;
+    })();
+    pendingHistorySavesRef.current.add(savePromise);
+    try {
+      return await savePromise;
     } finally {
+      pendingHistorySavesRef.current.delete(savePromise);
       console.timeEnd?.('saveAnswerHistory');
+    }
+  }
+
+  async function finishStudySession(status) {
+    const current = gameRef.current;
+    if (!current.studySessionId) return;
+    const response = await fetch(`/api/study-sessions/${current.studySessionId}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || '学習結果を保存できませんでした。');
+  }
+
+  function handleOpenExitConfirm() {
+    setShowExitConfirm(true);
+  }
+
+  function handleContinueStudy() {
+    setShowExitConfirm(false);
+    requestAnimationFrame(() => answerRef.current?.focus({ preventScroll: true }));
+  }
+
+  async function handleConfirmExit() {
+    if (isEndingSession) return;
+    setIsEndingSession(true);
+    try {
+      await Promise.all([...pendingHistorySavesRef.current]);
+      await finishStudySession('interrupted');
+      clearAllTimers();
+      setShowExitConfirm(false);
+      const next = { ...INITIAL_GAME, userName: gameRef.current.userName };
+      gameRef.current = next;
+      setGame(next);
+    } catch (error) {
+      setGame((prev) => ({ ...prev, errorMessage: error.message || '学習結果を保存できませんでした。' }));
+    } finally {
+      setIsEndingSession(false);
     }
   }
 
@@ -1217,7 +1298,9 @@ export default function HomePage() {
 
     if (shouldSpeak) addTimer(() => speak(word.english), 200);
 
-    void saveAnswerHistory({ word, answer: nextGame.answer, correct: isCorrect });
+    void saveAnswerHistory({ word, answer: nextGame.answer, correct: isCorrect })
+      .then(() => (judged.isLast ? finishStudySession('completed') : null))
+      .catch((error) => setGame((current) => ({ ...current, errorMessage: error.message })));
 
     if (isCorrect) {
       playCorrectSound();
@@ -1227,13 +1310,13 @@ export default function HomePage() {
     }
 
     // Keep the judged result on screen until the learner explicitly chooses Next.
-    // The input remains focused and read-only so a mobile keyboard stays open without
-    // allowing the already-scored answer to be changed.
+    // The controlled input stays mounted and focused; changes are ignored while judged.
   }
 
   function handleAnswerChange(event) {
     const value = event.target.value;
     const current = gameRef.current;
+    if (current.state !== 'asking') return;
     const word = current.quizWords[current.currentIndex];
 
     if (current.state === 'asking' && word && normalizeText(value) === normalizeText(word.english)) {
@@ -1279,7 +1362,8 @@ export default function HomePage() {
     if (current.isLoading) return;
     const requestedCount = Number(current.countInput);
     const safeRequestedCount = Number.isFinite(requestedCount) && requestedCount > 0 ? Math.floor(requestedCount) : 0;
-    setGame((prev) => ({ ...prev, isLoading: true, errorMessage: '' }));
+    flushSync(() => setGame((prev) => ({ ...prev, screen: 'game', state: 'loading', isLoading: true, errorMessage: '' })));
+    answerRef.current?.focus({ preventScroll: true });
     try {
       const words = current.questionMode === 'select'
         ? (current.words.length ? current.words : await fetchSelectedWordsByIds(current.selectedWordIds))
@@ -1427,7 +1511,8 @@ export default function HomePage() {
       setGame((prev) => ({ ...prev, isLoading: false, errorMessage: 'この条件に合う単語がありません。' }));
       return;
     }
-    setGame((prev) => ({ ...prev, isLoading: true, errorMessage: '' }));
+    flushSync(() => setGame((prev) => ({ ...prev, screen: 'game', state: 'loading', isLoading: true, errorMessage: '' })));
+    answerRef.current?.focus({ preventScroll: true });
     try {
       const selectedWords = current.selectionMode === 'allMatching' || hasCategoryCondition
         ? await fetchQuizSelectionWords(current, safeRequestedCount)
@@ -1435,7 +1520,7 @@ export default function HomePage() {
       if (!selectedWords.length) throw new Error('この条件に合う単語がありません。');
       await handleStart(selectedWords, 'select', true);
     } catch (error) {
-      setGame((prev) => ({ ...prev, isLoading: false, errorMessage: error.message || '選択した単語の取得に失敗しました。' }));
+      setGame((prev) => ({ ...prev, screen: 'intro', state: 'idle', isLoading: false, errorMessage: error.message || '選択した単語の取得に失敗しました。' }));
     } finally {
       setGame((prev) => (prev.isLoading ? { ...prev, isLoading: false } : prev));
     }
@@ -1924,14 +2009,14 @@ export default function HomePage() {
         )}
 
         {game.screen === 'game' && (
-          <>
+          <div className="quizViewport">
             <header className="gameHeader">
-              <div className="logo small">Muse Note</div>
+              <div className="quizHeaderProgress">{game.answeredCount} / {game.targetCount || '—'}</div>
               <div className="headerRight">
-                <div>{game.answeredCount} / {game.targetCount}</div>
                 <div>
                   {formatElapsed(totalElapsed)} / {formatElapsed(questionElapsed, false)}
                 </div>
+                <button className="exitStudyBtn" type="button" onClick={handleOpenExitConfirm}>終了</button>
               </div>
             </header>
 
@@ -1980,15 +2065,30 @@ export default function HomePage() {
                   autoComplete="off"
                   autoCapitalize="none"
                   spellCheck="false"
-                  readOnly={game.state !== 'asking'}
                   aria-label="英単語の回答"
                 />
-                <button className="answerBtn" type="button" onClick={handleAnswerButton}>
+                <button className="answerBtn" type="button" onClick={handleAnswerButton} disabled={game.state === 'loading'}>
                   {game.state === 'asking' ? 'Answer ▶' : 'Next ▶'}
                 </button>
               </div>
             </div>
-          </>
+            {game.errorMessage && <p className="quizSaveError" role="alert">{game.errorMessage}</p>}
+          </div>
+        )}
+
+        {showExitConfirm && (
+          <div className="exitConfirmOverlay" role="dialog" aria-modal="true" aria-labelledby="exit-title">
+            <div className="exitConfirmCard">
+              <h2 id="exit-title">学習を終了しますか？</h2>
+              <p>ここまでの回答は保存されます。</p>
+              <div className="exitConfirmActions">
+                <button type="button" onClick={handleContinueStudy} disabled={isEndingSession}>学習を続ける</button>
+                <button type="button" className="confirmExitBtn" onClick={handleConfirmExit} disabled={isEndingSession}>
+                  {isEndingSession ? '保存中…' : '終了する'}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {game.screen === 'result' && (
@@ -4437,7 +4537,26 @@ export default function HomePage() {
           display: flex;
           flex-direction: column;
           align-items: center;
+          min-height: 0;
+          flex: 1;
+          justify-content: space-between;
+          overflow-y: auto;
+          overscroll-behavior: contain;
         }
+
+        .quizViewport { position: fixed; z-index: 10; top: var(--quiz-viewport-top, 0px); left: 0; right: 0; height: var(--quiz-viewport-height, 100dvh); display: flex; flex-direction: column; overflow: hidden; background: #fff; padding: 12px 16px max(10px, env(safe-area-inset-bottom)); }
+        .quizViewport .gameHeader { flex: 0 0 auto; }
+        .quizHeaderProgress { font-weight: 700; color: #4f6b94; }
+        .headerRight { display: flex; align-items: center; gap: 12px; }
+        .exitStudyBtn { border: 1px solid #a8c9f0; border-radius: 10px; background: #fff; color: #4f6b94; padding: .45em .8em; font-weight: 700; }
+        .quizSaveError { flex: 0 0 auto; margin: 4px 0; color: #c62828; text-align: center; font-size: .85rem; }
+        .exitConfirmOverlay { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(39, 57, 80, .42); }
+        .exitConfirmCard { width: min(100%, 360px); border-radius: 18px; background: #fff; padding: 24px; text-align: center; box-shadow: 0 14px 40px rgba(39,57,80,.24); }
+        .exitConfirmCard h2 { margin: 0 0 8px; color: #4f6b94; font-size: 1.2rem; }
+        .exitConfirmCard p { margin: 0 0 20px; }
+        .exitConfirmActions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .exitConfirmActions button { min-height: 44px; border: 1px solid #a8c9f0; border-radius: 10px; background: #fff; color: #4f6b94; font-weight: 700; }
+        .exitConfirmActions .confirmExitBtn { border: none; background: #a8c9f0; color: #fff; }
 
         .questionButton {
           margin-top: 1rem;
