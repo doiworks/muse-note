@@ -390,6 +390,8 @@ const WordRow = memo(function WordRow({ word, selected, isImportant, onToggle, o
 export default function HomePage() {
   const router = useRouter();
   const [game, setGame] = useState(INITIAL_GAME);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [isSessionLoading, setIsSessionLoading] = useState(true);
   const [openCategoryKey, setOpenCategoryKey] = useState('');
   const [categorySearch, setCategorySearch] = useState({});
   const answerRef = useRef(null);
@@ -440,6 +442,30 @@ export default function HomePage() {
   useEffect(() => {
     gameRef.current = game;
   }, [game]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadSession() {
+      try {
+        const response = await fetch('/api/auth/session', { cache: 'no-store' });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'ユーザー情報の取得に失敗しました。');
+        if (cancelled) return;
+        setCurrentUser(data.user);
+        setGame((prev) => ({ ...prev, userName: data.user.display_name || 'LINEユーザー' }));
+      } catch (error) {
+        if (!cancelled) setGame((prev) => ({ ...prev, errorMessage: error.message }));
+      } finally {
+        if (!cancelled) setIsSessionLoading(false);
+      }
+    }
+
+    void loadSession();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     function updateVoices() {
@@ -1004,9 +1030,9 @@ export default function HomePage() {
     const current = gameRef.current;
     const activeQuestionMode = forcedQuestionMode || current.questionMode;
     const mode = current.mode || 'normal';
-    const userName = current.userName.trim();
-    if (!userName) {
-      setGame((prev) => ({ ...prev, errorMessage: 'ユーザー名を入力してください。' }));
+    const userName = currentUser?.display_name?.trim() || current.userName.trim();
+    if (!userName || isSessionLoading) {
+      setGame((prev) => ({ ...prev, errorMessage: 'ユーザー情報を読み込んでいます。' }));
       return;
     }
 
@@ -1768,18 +1794,19 @@ export default function HomePage() {
           <div className="intro">
             <div className="topBar">
               <div className="logo large">Muse Note</div>
-              <button type="button" className="logoutBtn" onClick={handleLogout}>
-                ログアウト
-              </button>
+              <div className="accountArea">
+                {currentUser?.picture_url ? (
+                  <img className="profileImage" src={currentUser.picture_url} alt="" referrerPolicy="no-referrer" />
+                ) : (
+                  <span className="profileImage profileImageFallback" aria-hidden="true">●</span>
+                )}
+                <span className="profileName">{currentUser?.display_name || '読み込み中...'}</span>
+                <button type="button" className="logoutBtn" onClick={handleLogout}>
+                  ログアウト
+                </button>
+              </div>
             </div>
             <div className="inputRow">
-              <input
-                className="nameInput"
-                value={game.userName}
-                onChange={(event) => setGame((prev) => ({ ...prev, userName: event.target.value, errorMessage: '' }))}
-                placeholder="ユーザー名"
-                autoComplete="name"
-              />
               <input
                 className="countInput"
                 type="number"
@@ -1822,7 +1849,7 @@ export default function HomePage() {
             <button
               type="button"
               className="retryBtn primary"
-              disabled={game.isLoading}
+              disabled={game.isLoading || isSessionLoading}
               onClick={() => (game.questionMode === 'select' ? void handleStartSelected() : handleStart())}
             >
               {game.isLoading ? '読み込み中...' : '開始'}
@@ -2326,6 +2353,32 @@ export default function HomePage() {
 
         .topBar {
           margin-bottom: 0.5rem;
+        }
+        .accountArea {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        .profileImage {
+          width: 36px;
+          height: 36px;
+          border-radius: 50%;
+          object-fit: cover;
+          flex: 0 0 auto;
+        }
+        .profileImageFallback {
+          display: grid;
+          place-items: center;
+          color: #06c755;
+          background: #e8f8ee;
+          font-size: 16px;
+        }
+        .profileName {
+          max-width: 180px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-weight: 700;
         }
 
         .gameHeader {

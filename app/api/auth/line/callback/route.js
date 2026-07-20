@@ -93,6 +93,7 @@ export async function GET(request) {
       appUserId: appUser.id,
       authType: 'line',
       displayName: appUser.display_name,
+      pictureUrl: appUser.picture_url,
       role: appUser.role
     });
     const redirectPath = normalizeInternalRedirect(oauthState.redirectPath);

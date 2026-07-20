@@ -10,6 +10,7 @@ export async function GET(request) {
     user: {
       id: session.appUserId,
       display_name: session.displayName,
+      picture_url: session.pictureUrl || null,
       role: session.role,
       auth_type: session.authType
     }
