@@ -410,6 +410,7 @@ export default function HomePage() {
   const voicesRef = useRef([]);
   const gameRef = useRef(INITIAL_GAME);
   const fairReservationRef = useRef(null);
+  const wrongEmptyReasonRef = useRef(null);
   const audioContextRef = useRef(null);
   const v2PrefetchRef = useRef({ key: '', promise: null, data: null });
   const v2OpenStartedAtRef = useRef(0);
@@ -755,9 +756,8 @@ export default function HomePage() {
         last_answered_at: word.last_answered_at || null
       }));
 
-    const sourceWords = questionMode === 'wrong'
-      ? availableWords.filter((word) => Number(word.stats?.mistake_count ?? 0) > 0)
-      : availableWords;
+    // Wrong-mode membership is determined by the authenticated server from history.
+    const sourceWords = availableWords;
 
     // The server RPC already returns the least-presented tier in randomized order.
     const rankedWords = sourceWords;
@@ -824,6 +824,7 @@ export default function HomePage() {
       body: JSON.stringify({ requestedCount: requested, mode: questionMode === 'wrong' ? 'wrong' : 'balanced' })
     });
     fairReservationRef.current = data.reservation_id;
+    wrongEmptyReasonRef.current = data.empty_reason || null;
     return data.words || [];
   }
 
@@ -1135,7 +1136,9 @@ export default function HomePage() {
           ...prev,
           screen: 'intro', state: 'idle', isLoading: false,
           wrongModeFallbackAvailable: wrongEmpty,
-          errorMessage: wrongEmpty ? '間違えた単語はまだありません' : '出題できる単語がありません。'
+          errorMessage: wrongEmpty
+            ? (wrongEmptyReasonRef.current === 'no_matching_words' ? 'この条件に合う苦手単語はありません' : '間違えた単語はまだありません')
+            : '出題できる単語がありません。'
         }));
         return;
       }
@@ -1380,7 +1383,9 @@ export default function HomePage() {
           ...prev,
           isLoading: false,
           wrongModeFallbackAvailable: wrongEmpty,
-          errorMessage: wrongEmpty ? '間違えた単語はまだありません' : '出題できる単語がありません。'
+          errorMessage: wrongEmpty
+            ? (wrongEmptyReasonRef.current === 'no_matching_words' ? 'この条件に合う苦手単語はありません' : '間違えた単語はまだありません')
+            : '出題できる単語がありません。'
         }));
         return;
       }

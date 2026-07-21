@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { getAppSessionFromRequest } from '../../../../lib/auth/appSession';
 import { createScopeKey } from '../../../../lib/fairQuiz';
 import { applyWordPickerFilters } from '../list/route';
+import { filterWordsByWrongHistory, uniqueWrongWordIds } from '../../../../lib/wrongWords';
 
 const COLUMNS = 'id,japanese,english,phonetic,importance,school_level,grade,term,exam_type,category1,category2,category3';
 const PAGE = 1000;
@@ -35,14 +36,18 @@ export async function POST(request) {
       words = await fetchAll(() => applyWordPickerFilters(supabase.from('words').select(COLUMNS), paramsFor(body)));
     }
     if (body.mode === 'wrong') {
-      const { data, error: statsError } = await supabase.from('stats').select('word_id').eq('app_user_id', session.appUserId).gt('mistake_count', 0);
-      if (statsError) throw statsError;
-      const wrong = new Set((data || []).map((row) => Number(row.word_id)));
-      words = words.filter((word) => wrong.has(Number(word.id)));
+      const historyRows = await fetchAll(() => supabase.from('history').select('word_id,correct')
+        .eq('app_user_id', session.appUserId).eq('correct', false));
+      const wrongWordIds = uniqueWrongWordIds(historyRows);
+      words = filterWordsByWrongHistory(words, wrongWordIds);
+      if (!words.length) return NextResponse.json({
+        words: [], reservation_id: null,
+        empty_reason: wrongWordIds.length ? 'no_matching_words' : 'no_wrong_history'
+      });
     }
     const excluded = new Set((body.excludedIds || []).map(Number));
     words = words.filter((word) => !excluded.has(Number(word.id)));
-    if (!words.length) return NextResponse.json({ words: [], reservation_id: null });
+    if (!words.length) return NextResponse.json({ words: [], reservation_id: null, empty_reason: 'no_matching_words' });
     const scopeInput = { ...body, wordIds: words.map((word) => word.id), mode: body.mode || 'balanced' };
     const scopeKey = createScopeKey(scopeInput);
     const { data: reserved, error: reserveError } = await supabase.rpc('reserve_fair_quiz_words', {
