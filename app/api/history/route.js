@@ -2,117 +2,44 @@ import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '../../../lib/supabaseAdmin';
 import { getAppSessionFromRequest } from '../../../lib/auth/appSession';
 
-const HISTORY_SAVE_ERROR_MESSAGE = '回答履歴の保存に失敗しました。時間をおいて再度お試しください。';
-
-function createErrorResponse(message, status) {
-  return NextResponse.json({ error: message }, { status });
-}
-
-function parseWordId(value) {
-  const wordId = Number(value);
-  return Number.isInteger(wordId) && wordId >= 0 ? wordId : null;
-}
-
-async function updateStatsAfterHistorySave({ supabaseAdmin, appUserId, wordId, correct, answeredAt }) {
-  const { data: existingStats, error: existingStatsError } = await supabaseAdmin
-    .from('stats')
-    .select('app_user_id,word_id,last_correct,last_wrong,success_count,mistake_count,accuracy,attempt_count,priority,updated_at')
-    .eq('app_user_id', appUserId)
-    .eq('word_id', wordId)
-    .maybeSingle();
-
-  if (existingStatsError) throw existingStatsError;
-
-  const oldSuccessCount = Number(existingStats?.success_count ?? 0);
-  const oldMistakeCount = Number(existingStats?.mistake_count ?? 0);
-  const oldAttemptCount = Number(existingStats?.attempt_count ?? oldSuccessCount + oldMistakeCount);
-  const newSuccessCount = correct ? oldSuccessCount + 1 : oldSuccessCount;
-  const newMistakeCount = correct ? oldMistakeCount : oldMistakeCount + 1;
-  const newAttemptCount = oldAttemptCount + 1;
-  const newAccuracy = Number(((newSuccessCount / newAttemptCount) * 100).toFixed(2));
-  const nextStats = {
-    app_user_id: appUserId,
-    word_id: wordId,
-    success_count: newSuccessCount,
-    mistake_count: newMistakeCount,
-    attempt_count: newAttemptCount,
-    accuracy: newAccuracy,
-    priority: Number(existingStats?.priority ?? 0),
-    updated_at: answeredAt,
-    ...(correct ? { last_correct: answeredAt } : { last_wrong: answeredAt })
-  };
-
-  if (existingStats) {
-    const { error } = await supabaseAdmin
-      .from('stats')
-      .update(nextStats)
-      .eq('app_user_id', appUserId)
-      .eq('word_id', wordId);
-    if (error) throw error;
-    return;
-  }
-
-  const { error } = await supabaseAdmin.from('stats').insert(nextStats);
-  if (error) throw error;
-}
+const SAVE_ERROR = '回答履歴と集計の保存に失敗しました。回答は登録されていないため、再試行してください。';
+const errorResponse = (message, status) => NextResponse.json({ error: message }, { status });
 
 export async function POST(request) {
   const session = await getAppSessionFromRequest(request);
-  if (!session) return createErrorResponse('ログインが必要です。', 401);
-
+  if (!session) return errorResponse('ログインが必要です。', 401);
   const body = await request.json().catch(() => null);
-  const wordId = parseWordId(body?.word_id ?? body?.wordId);
-  const answer = typeof body?.answer === 'string' ? body.answer : '';
-  const correct = body?.correct;
-  const studySessionId = typeof body?.study_session_id === 'string' ? body.study_session_id : null;
-  if (wordId === null || typeof correct !== 'boolean') {
-    return createErrorResponse('word_id と correct は必須です。', 400);
+  const wordId = Number(body?.word_id ?? body?.wordId);
+  if (!Number.isInteger(wordId) || wordId < 0 || typeof body?.correct !== 'boolean') {
+    return errorResponse('word_id と correct は必須です。', 400);
   }
-
+  const studySessionId = typeof body.study_session_id === 'string' ? body.study_session_id : null;
   try {
-    const supabaseAdmin = getSupabaseAdmin();
-    const answeredAt = new Date().toISOString();
+    const supabase = getSupabaseAdmin();
     if (studySessionId) {
-      const { data: studySession, error: studySessionError } = await supabaseAdmin
-        .from('study_sessions').select('id,status').eq('id', studySessionId)
+      const { data, error } = await supabase.from('study_sessions').select('id').eq('id', studySessionId)
         .eq('app_user_id', session.appUserId).eq('status', 'in_progress').maybeSingle();
-      if (studySessionError || !studySession) {
-        return createErrorResponse('有効な学習セッションが見つかりません。', 400);
-      }
+      if (error || !data) return errorResponse('有効な学習セッションが見つかりません。', 400);
     }
-    const { error } = await supabaseAdmin.from('history').insert({
-      app_user_id: session.appUserId,
-      word_id: wordId,
-      answer,
-      correct,
-      study_session_id: studySessionId,
-      answered_at: answeredAt
+    // One database transaction inserts the source-of-truth event and atomically
+    // increments its cache. If stats fails PostgreSQL rolls the history insert back,
+    // so a client retry can never duplicate an already-committed history row.
+    const { data, error } = await supabase.rpc('record_answer_and_update_stats', {
+      p_app_user_id: session.appUserId,
+      p_word_id: wordId,
+      p_answer: typeof body.answer === 'string' ? body.answer : '',
+      p_correct: body.correct,
+      p_study_session_id: studySessionId,
+      p_answered_at: new Date().toISOString()
     });
-
-    if (error) {
-      console.error('Failed to save answer history:', error);
-      return createErrorResponse(HISTORY_SAVE_ERROR_MESSAGE, 500);
+    const result = Array.isArray(data) ? data[0] : data;
+    if (error || !result?.history_id || !result?.stats_updated) {
+      console.error('Atomic history/stats save failed:', { appUserId: session.appUserId, wordId, error, result });
+      return errorResponse(SAVE_ERROR, 500);
     }
-
-    try {
-      await updateStatsAfterHistorySave({
-        supabaseAdmin,
-        appUserId: session.appUserId,
-        wordId,
-        correct,
-        answeredAt
-      });
-    } catch (statsError) {
-      console.error('History save succeeded but stats update failed:', {
-        appUserId: session.appUserId,
-        wordId,
-        statsError
-      });
-    }
-
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, history_saved: true, stats_updated: true, history_id: result.history_id });
   } catch (error) {
     console.error('Failed to use history API:', error);
-    return createErrorResponse(HISTORY_SAVE_ERROR_MESSAGE, 500);
+    return errorResponse(SAVE_ERROR, 500);
   }
 }

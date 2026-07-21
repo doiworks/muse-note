@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '../../../lib/supabaseAdmin';
 import { getAppSessionFromRequest } from '../../../lib/auth/appSession';
+import { filterWordsByWrongHistory, uniqueWrongWordIds } from '../../../lib/wrongWords';
 
 const WORD_COLUMNS = [
   'id','school_level','grade','term','exam_type','category1','category2','category3','importance',
@@ -156,7 +157,13 @@ export async function GET(request) {
     const { data: statsRows, error: statsError } = await fetchStatsForWordIds(supabaseAdmin, session.appUserId, wordIds);
     if (statsError) return createErrorResponse(WORD_FETCH_ERROR_MESSAGE, 500);
     const wordsWithStats = attachStatsToWords(wordRows ?? [], statsRows ?? []);
-    const candidateWords = isWrongMode ? wordsWithStats.filter((word) => Number(word?.stats?.mistake_count ?? 0) > 0) : wordsWithStats;
+    let candidateWords = wordsWithStats;
+    if (isWrongMode) {
+      const { data: wrongHistory, error: historyError } = await supabaseAdmin.from('history')
+        .select('word_id,correct').eq('app_user_id', session.appUserId).eq('correct', false);
+      if (historyError) return createErrorResponse(WORD_FETCH_ERROR_MESSAGE, 500);
+      candidateWords = filterWordsByWrongHistory(wordsWithStats, uniqueWrongWordIds(wrongHistory));
+    }
     const responseWords = isWrongMode ? sortWordsForWrongQuestions(candidateWords) : sortWordsForBalancedQuestions(candidateWords);
     return NextResponse.json({ words: responseWords.slice(0, limit), has_more: false });
   } catch (error) {
