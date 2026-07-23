@@ -12,9 +12,24 @@ export default function ColorContrastPolish() {
         font-weight: 900 !important;
       }
 
+      /* 重要単語は背景色ではなく、常時表示の重要マークだけで区別する */
       .wordPickerScreen .importantWordRow:not(.selected) {
-        background: #f1e7ff !important;
-        box-shadow: 0 2px 8px rgba(86, 49, 132, .14) !important;
+        background: #ffffff !important;
+        box-shadow: 0 2px 7px rgba(72, 113, 158, .09) !important;
+      }
+
+      /* カテゴリ設定のクリア・適用を常に横並びにする */
+      .wordPickerScreen .categoryPanelActions {
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 10px !important;
+        width: 100% !important;
+      }
+
+      .wordPickerScreen .categoryPanelActions button {
+        width: 100% !important;
+        min-width: 0 !important;
+        margin: 0 !important;
       }
 
       /* 分析詳細はアプリ全体と同じ青系へ戻す */
@@ -25,6 +40,19 @@ export default function ColorContrastPolish() {
       .analyticsPanel {
         background: #edf5ff !important;
         box-shadow: 0 10px 28px rgba(52, 76, 104, .16) !important;
+        padding-top: 0 !important;
+      }
+
+      /* 更新・閉じるをスクロール中も上部へ固定する */
+      .analyticsPanel .analyticsHeader {
+        position: sticky !important;
+        top: 0 !important;
+        z-index: 20 !important;
+        margin: 0 -16px 16px !important;
+        padding: 14px 16px !important;
+        border-radius: 0 0 16px 16px !important;
+        background: rgba(255, 255, 255, .98) !important;
+        box-shadow: 0 4px 12px rgba(52, 76, 104, .10) !important;
       }
 
       .analyticsPanel .analysisSection h3,
@@ -67,6 +95,14 @@ export default function ColorContrastPolish() {
 
       .analyticsPanel .gradeTrack span {
         background: #7fb1e8 !important;
+      }
+
+      @media (max-width: 560px) {
+        .analyticsPanel .analyticsHeader {
+          margin: 0 -14px 14px !important;
+          padding: 12px 14px !important;
+          border-radius: 0 0 15px 15px !important;
+        }
       }
     `}</style>
   );

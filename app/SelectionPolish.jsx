@@ -10,18 +10,11 @@ export default function SelectionPolish() {
       document.querySelectorAll('.wordPickerScreen .wordRowItem').forEach((row) => {
         const isImportant = [...row.querySelectorAll('.wordMetaInfo .wordTag')]
           .some((tag) => tag.textContent?.trim() === '重要');
-        row.classList.toggle('importantWordRow', isImportant);
 
-        const secondLine = row.querySelector('.compactWordSecondLine');
-        if (!secondLine) return;
-        let badge = secondLine.querySelector('.importantPriorityBadge');
-        if (isImportant && !badge) {
-          badge = document.createElement('span');
-          badge.className = 'importantPriorityBadge';
-          badge.textContent = '重要';
-          secondLine.insertBefore(badge, secondLine.querySelector('.mistakeCountBadge'));
-        }
-        if (!isImportant && badge) badge.remove();
+        // 重要かどうかは、選択状態ではなく単語データ側の「重要」タグだけで判定する。
+        // 表示はCSSの疑似要素に任せるため、別処理で2行目が作り直されても消えない。
+        row.classList.toggle('importantWordRow', isImportant);
+        row.querySelectorAll('.importantPriorityBadge').forEach((badge) => badge.remove());
       });
     }
 
@@ -52,19 +45,32 @@ export default function SelectionPolish() {
         color: #204f7b !important;
       }
 
-      .wordPickerScreen .importantPriorityBadge {
-        flex: 0 0 auto;
-        border-radius: 999px;
-        padding: 1px 6px;
-        background: #ffd6a8;
-        color: #8a4d00;
-        font-size: .6rem;
-        font-weight: 900;
-        line-height: 1.35;
+      /* 既存処理が生成する重要タグは隠し、必ず1個だけ固定表示する */
+      .wordPickerScreen .importantPriorityBadge,
+      .wordPickerScreen .compactMetaTag.important {
+        display: none !important;
       }
 
+      .wordPickerScreen .importantWordRow .compactWordSecondLine::before {
+        content: '重要';
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        padding: 1px 7px;
+        background: #b996f2;
+        color: #3f236d;
+        font-size: .61rem;
+        font-weight: 900;
+        line-height: 1.4;
+        box-shadow: 0 1px 3px rgba(63, 35, 109, .18);
+      }
+
+      /* 重要単語は色面で区別せず、重要マークだけを常に残す */
       .wordPickerScreen .importantWordRow:not(.selected) {
-        background: linear-gradient(180deg, #fffdf7 0%, #fff8e8 100%) !important;
+        background: #ffffff !important;
+        box-shadow: 0 2px 7px rgba(72, 113, 158, .09) !important;
       }
 
       .selectAreaActions {
