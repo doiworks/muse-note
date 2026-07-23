@@ -1,20 +1,33 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '../../../../lib/supabaseAdmin';
-import { PREVIEW_SESSION_COOKIE_NAME, verifyPreviewSessionCookieValue } from '../../../../lib/auth/previewSession';
-import { applyWordPickerFilters } from '../list/route';
+import { getAppSessionFromRequest } from '../../../../lib/auth/appSession';
+import { applyWordPickerFilters, fetchAllFilteredWords, fetchWrongStatsMap } from '../list/route';
 
 function jsonError(message, status = 500) {
   return NextResponse.json({ error: message }, { status });
 }
 
+function isTrue(value) {
+  return value === true || value === 'true';
+}
+
 export async function GET(request) {
-  const sessionCookie = request.cookies.get(PREVIEW_SESSION_COOKIE_NAME)?.value;
-  const isLoggedIn = await verifyPreviewSessionCookieValue(sessionCookie);
-  if (!isLoggedIn) return jsonError('仮ログインが必要です。', 401);
+  const session = await getAppSessionFromRequest(request);
+  if (!session) return jsonError('ログインが必要です。', 401);
 
   try {
     const supabaseAdmin = getSupabaseAdmin();
     const searchParams = new URL(request.url).searchParams;
+
+    if (isTrue(searchParams.get('weakOnly'))) {
+      const [wrongStats, filteredWords] = await Promise.all([
+        fetchWrongStatsMap(supabaseAdmin, session.appUserId),
+        fetchAllFilteredWords(supabaseAdmin, searchParams, 'id')
+      ]);
+      const total = filteredWords.filter((word) => wrongStats.has(Number(word.id))).length;
+      return NextResponse.json({ total });
+    }
+
     const { count, error } = await applyWordPickerFilters(
       supabaseAdmin.from('words').select('id', { count: 'exact', head: true }),
       searchParams
