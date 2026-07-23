@@ -12,11 +12,13 @@ function formatDate(value) {
   }
 }
 
-function AnalyticsIcon() {
+function AnalysisGlyph() {
   return (
-    <svg aria-hidden="true" viewBox="0 0 24 24">
-      <path d="M5 19V11M12 19V5M19 19v-8" />
-    </svg>
+    <span className="analysisGlyph" aria-hidden="true">
+      <i />
+      <i />
+      <i />
+    </span>
   );
 }
 
@@ -118,10 +120,11 @@ export default function LearningOverview() {
     const onKeyDown = (event) => {
       if (event.key === 'Escape') setDetailsOpen(false);
     };
+    const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     window.addEventListener('keydown', onKeyDown);
     return () => {
-      document.body.style.overflow = '';
+      document.body.style.overflow = previousOverflow;
       window.removeEventListener('keydown', onKeyDown);
       window.speechSynthesis?.cancel();
     };
@@ -137,18 +140,21 @@ export default function LearningOverview() {
     <>
       <section className="learningOverviewCompact" aria-label="学習状況">
         {error ? (
-          <button className="compactError" type="button" onClick={() => void loadOverview()}>再読み込み</button>
+          <button className="compactError" type="button" onClick={() => void loadOverview()}>学習状況を再読み込み</button>
         ) : !summary ? (
-          <span className="compactLoading">読み込み中</span>
+          <span className="compactLoading">学習状況を読み込み中…</span>
         ) : (
-          <div className="compactInner">
-            <div className="metricGroup">
-              <div className="compactMetric"><span>進捗</span><b>{summary.progress_percent}%</b></div>
-              <span className="compactSeparator" aria-hidden="true" />
-              <div className="compactMetric"><span>正解率</span><b>{summary.accuracy}%</b></div>
+          <div className="overviewCard">
+            <div className="compactMetric">
+              <span>進捗</span>
+              <b>{summary.progress_percent}%</b>
+            </div>
+            <div className="compactMetric">
+              <span>正解率</span>
+              <b>{summary.accuracy}%</b>
             </div>
             <button className="detailsButton" type="button" onClick={() => setDetailsOpen(true)} aria-label="詳細分析を開く">
-              <AnalyticsIcon />
+              <AnalysisGlyph />
               <span>分析</span>
             </button>
           </div>
@@ -161,27 +167,34 @@ export default function LearningOverview() {
         }}>
           <section className="analyticsPanel">
             <header className="analyticsHeader">
-              <strong>詳細分析</strong>
+              <div>
+                <span className="analyticsEyebrow">LEARNING REPORT</span>
+                <strong>詳細分析</strong>
+              </div>
               <div className="analyticsHeaderActions">
                 <button className="refreshButton" type="button" onClick={() => void loadOverview()} disabled={loading}>{loading ? '更新中' : '更新'}</button>
-                <button className="closeButton" type="button" onClick={() => setDetailsOpen(false)} aria-label="閉じる">×</button>
+                <button className="closeButton" type="button" onClick={() => setDetailsOpen(false)}>閉じる</button>
               </div>
             </header>
 
             <div className="summaryGrid">
-              <div><span>学習済み</span><b>{summary.studied_words} / {summary.total_words}語</b></div>
-              <div><span>総回答</span><b>{summary.total_answers}回</b></div>
-              <div><span>正解</span><b>{summary.correct_answers}回</b></div>
-              <div><span>間違い</span><b>{summary.wrong_answers}回</b></div>
-              <div><span>苦手</span><b>{summary.weak_words}語</b></div>
-              <div><span>直近7日</span><b>{summary.active_days_7}日</b></div>
+              <div className="summaryCard"><span>学習済み</span><b>{summary.studied_words} / {summary.total_words}語</b></div>
+              <div className="summaryCard"><span>総回答</span><b>{summary.total_answers}回</b></div>
+              <div className="summaryCard"><span>正解</span><b>{summary.correct_answers}回</b></div>
+              <div className="summaryCard"><span>間違い</span><b>{summary.wrong_answers}回</b></div>
+              <div className="summaryCard"><span>苦手</span><b>{summary.weak_words}語</b></div>
+              <div className="summaryCard"><span>直近7日</span><b>{summary.active_days_7}日</b></div>
             </div>
 
             <section className="analysisSection">
               <h3>直近7日</h3>
               <div className="dailyGrid">
                 {dailyActivity.map((item) => (
-                  <div key={item.date}><span>{formatDate(item.date)}</span><b>{item.answers}問</b><small>{item.answers ? `${item.accuracy}%` : '—'}</small></div>
+                  <div className="dailyCard" key={item.date}>
+                    <span>{formatDate(item.date)}</span>
+                    <b>{item.answers}問</b>
+                    <small>{item.answers ? `正解率 ${item.accuracy}%` : '学習なし'}</small>
+                  </div>
                 ))}
               </div>
             </section>
@@ -191,9 +204,15 @@ export default function LearningOverview() {
               <div className="gradeList">
                 {gradeAnalysis.map((item) => (
                   <div className="gradeRow" key={item.grade}>
-                    <div className="gradeLabel"><strong>{item.grade}</strong><span>{item.studied_words} / {item.total_words}語</span></div>
+                    <div className="gradeLabel">
+                      <strong>{item.grade}</strong>
+                      <span>{item.studied_words} / {item.total_words}語</span>
+                    </div>
                     <div className="gradeTrack"><span style={{ width: `${Math.max(0, Math.min(100, item.progress_percent))}%` }} /></div>
-                    <div className="gradeNumbers"><b>{item.progress_percent}%</b><span>正解率 {item.accuracy}%</span></div>
+                    <div className="gradeNumbers">
+                      <b>進捗 {item.progress_percent}%</b>
+                      <span>正解率 {item.accuracy}%</span>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -205,9 +224,15 @@ export default function LearningOverview() {
                 {weakWords.length ? weakWords.map((item, index) => (
                   <div className="weakWordRow" key={item.word_id}>
                     <span className="rank">{index + 1}</span>
-                    <div className="weakWordName"><strong>{item.word.english}</strong><span>{item.word.japanese}</span></div>
+                    <div className="weakWordName">
+                      <strong>{item.word.english}</strong>
+                      <span>{item.word.japanese}</span>
+                    </div>
+                    <div className="weakWordMeta">
+                      <b>{item.mistake_count}回</b>
+                      <span>{formatDate(item.last_wrong_at)}</span>
+                    </div>
                     <button className="speakButton" type="button" onClick={() => speakEnglish(item.word.english)} aria-label={`${item.word.english}を発音`} title="発音を聞く"><SpeakerIcon /></button>
-                    <div className="weakWordMeta"><b>{item.mistake_count}回</b><span>{formatDate(item.last_wrong_at)}</span></div>
                   </div>
                 )) : <p className="weakWordEmpty">間違えた単語はまだありません。</p>}
               </div>
@@ -218,78 +243,535 @@ export default function LearningOverview() {
       )}
 
       <style jsx>{`
-        :global(.learningOverviewHost) { width: 100%; }
-        .learningOverviewCompact { min-height: 36px; margin: 0 0 .38rem; display: flex; justify-content: center; color: #2f6fa8; }
-        .compactInner { position: relative; width: 100%; min-height: 36px; display: flex; align-items: center; justify-content: center; border-top: 1px solid #d8e9f7; border-bottom: 1px solid #d8e9f7; }
-        .metricGroup { display: flex; align-items: center; justify-content: center; gap: 14px; }
-        .compactMetric { display: flex; align-items: baseline; gap: 5px; white-space: nowrap; }
-        .compactMetric span { color: #6b9ac1; font-size: .7rem; letter-spacing: .03em; }
-        .compactMetric b { color: #2f6fa8; font-size: .95rem; font-weight: 700; }
-        .compactSeparator { width: 1px; height: 15px; background: #c9e0f2; }
-        .detailsButton { position: absolute; right: 5px; min-height: 28px; padding: 0 8px; display: inline-flex; align-items: center; gap: 4px; border: 0; border-radius: 8px; background: #edf7ff; color: #2f6fa8; font-size: .68rem; font-weight: 700; }
-        .detailsButton:hover { background: #dff0fc; }
-        .detailsButton svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
-        .compactLoading,.compactError { color: #2f6fa8; font-size: .74rem; }
-        .compactError { border: 0; background: transparent; text-decoration: underline; }
+        :global(.learningOverviewHost) {
+          width: 100%;
+        }
 
-        .analyticsOverlay { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; padding: 18px; background: rgba(28, 91, 142, .35); backdrop-filter: blur(3px); }
-        .analyticsPanel { width: min(720px, 100%); max-height: min(88vh, 820px); overflow: auto; padding: 0 20px 22px; border: 1px solid #cfe4f4; border-radius: 18px; background: #fff; box-shadow: 0 20px 55px rgba(34, 103, 158, .22); }
-        .analyticsHeader { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 -20px 18px; padding: 15px 20px; border-bottom: 1px solid #d8e9f7; background: rgba(255,255,255,.97); backdrop-filter: blur(8px); }
-        .analyticsHeader strong { color: #2f6fa8; font-size: 1rem; letter-spacing: .03em; }
-        .analyticsHeaderActions { display: flex; align-items: center; gap: 5px; }
-        .analyticsHeaderActions button { min-height: 32px; border: 0; border-radius: 8px; background: #edf7ff; color: #2f6fa8; font-weight: 700; }
-        .refreshButton { padding: 0 10px; font-size: .72rem; }
-        .closeButton { width: 32px; padding: 0; font-size: 1.15rem; line-height: 1; }
+        .learningOverviewCompact {
+          width: 100%;
+          margin: .3rem 0 .65rem;
+          color: #42658d;
+        }
 
-        .summaryGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid #d8e9f7; border-left: 1px solid #d8e9f7; }
-        .summaryGrid div { min-width: 0; padding: 11px 8px; border-right: 1px solid #d8e9f7; border-bottom: 1px solid #d8e9f7; background: #fff; text-align: center; }
-        .summaryGrid span,.summaryGrid b { display: block; }
-        .summaryGrid span { color: #6b9ac1; font-size: .68rem; }
-        .summaryGrid b { margin-top: 3px; color: #2f6fa8; font-size: .9rem; }
+        .overviewCard {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+          align-items: stretch;
+          gap: 8px;
+          width: 100%;
+          padding: 8px;
+          border-radius: 20px;
+          background: linear-gradient(180deg, #f7fbff 0%, #edf6ff 100%);
+          box-shadow: 0 7px 18px rgba(72, 113, 158, .13);
+        }
 
-        .analysisSection { margin-top: 22px; }
-        .analysisSection h3 { margin: 0 0 9px; color: #2f6fa8; font-size: .82rem; font-weight: 700; letter-spacing: .04em; }
-        .dailyGrid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-top: 1px solid #d8e9f7; border-left: 1px solid #d8e9f7; }
-        .dailyGrid div { min-width: 0; padding: 8px 3px; border-right: 1px solid #d8e9f7; border-bottom: 1px solid #d8e9f7; text-align: center; }
-        .dailyGrid span,.dailyGrid b,.dailyGrid small { display: block; }
-        .dailyGrid span { color: #6b9ac1; font-size: .62rem; }
-        .dailyGrid b { margin-top: 3px; color: #2f6fa8; font-size: .78rem; }
-        .dailyGrid small { margin-top: 2px; color: #4f86b3; font-size: .62rem; }
+        .compactMetric {
+          min-width: 0;
+          min-height: 58px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 7px;
+          border-radius: 15px;
+          background: #ffffff;
+          box-shadow: 0 3px 10px rgba(72, 113, 158, .10);
+        }
 
-        .gradeList,.weakWordPanel { border-top: 1px solid #d8e9f7; }
-        .gradeRow { display: grid; grid-template-columns: 100px minmax(80px, 1fr) 90px; align-items: center; gap: 12px; padding: 11px 2px; border-bottom: 1px solid #d8e9f7; }
-        .gradeLabel strong,.gradeLabel span,.gradeNumbers b,.gradeNumbers span { display: block; }
-        .gradeLabel strong { color: #2f6fa8; font-size: .8rem; }
-        .gradeLabel span,.gradeNumbers span { color: #6b9ac1; font-size: .66rem; }
-        .gradeTrack { height: 5px; overflow: hidden; border-radius: 999px; background: #e6f2fb; }
-        .gradeTrack span { display: block; height: 100%; border-radius: inherit; background: #4c91c8; }
-        .gradeNumbers { text-align: right; }
-        .gradeNumbers b { color: #2f6fa8; font-size: .78rem; }
+        .compactMetric span {
+          color: #6f8daf;
+          font-size: .78rem;
+          font-weight: 800;
+          white-space: nowrap;
+        }
 
-        .weakWordRow { display: grid; grid-template-columns: 24px minmax(0, 1fr) 34px auto; align-items: center; gap: 9px; padding: 10px 2px; border-bottom: 1px solid #d8e9f7; }
-        .rank { color: #6b9ac1; font-size: .7rem; font-weight: 700; text-align: center; }
-        .weakWordName,.weakWordMeta { min-width: 0; }
-        .weakWordName strong,.weakWordName span,.weakWordMeta b,.weakWordMeta span { display: block; }
-        .weakWordName strong { overflow: hidden; color: #2f6fa8; text-overflow: ellipsis; white-space: nowrap; }
-        .weakWordName span,.weakWordMeta span { color: #6b9ac1; font-size: .68rem; }
-        .weakWordMeta { text-align: right; }
-        .weakWordMeta b { color: #2f6fa8; font-size: .74rem; }
-        .speakButton { width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 50%; background: #edf7ff; color: #2f6fa8; }
-        .speakButton:hover { background: #dff0fc; }
-        .speakButton svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
-        .weakWordEmpty { margin: 0; padding: 18px; color: #6b9ac1; text-align: center; }
+        .compactMetric b {
+          color: #315d91;
+          font-size: 1.35rem;
+          font-weight: 900;
+          line-height: 1;
+          white-space: nowrap;
+        }
+
+        .detailsButton {
+          min-width: 78px;
+          min-height: 58px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 7px;
+          border: 0;
+          border-radius: 15px;
+          background: linear-gradient(180deg, #a9caf0 0%, #8db7e6 100%);
+          color: #ffffff;
+          font-size: .82rem;
+          font-weight: 900;
+          box-shadow: 0 4px 11px rgba(74, 125, 181, .24);
+          cursor: pointer;
+        }
+
+        .detailsButton:active {
+          transform: scale(.98);
+        }
+
+        .analysisGlyph {
+          height: 18px;
+          display: inline-flex;
+          align-items: flex-end;
+          gap: 2px;
+        }
+
+        .analysisGlyph i {
+          width: 3px;
+          display: block;
+          border-radius: 999px;
+          background: currentColor;
+        }
+
+        .analysisGlyph i:nth-child(1) { height: 7px; }
+        .analysisGlyph i:nth-child(2) { height: 12px; }
+        .analysisGlyph i:nth-child(3) { height: 17px; }
+
+        .compactLoading,
+        .compactError {
+          width: 100%;
+          min-height: 56px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border: 0;
+          border-radius: 18px;
+          background: #edf6ff;
+          color: #42658d;
+          font-size: .78rem;
+          font-weight: 800;
+        }
+
+        .compactError {
+          cursor: pointer;
+        }
+
+        .analyticsOverlay {
+          position: fixed;
+          inset: 0;
+          z-index: 10000;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 18px;
+          background: rgba(36, 76, 119, .31);
+          backdrop-filter: blur(4px);
+        }
+
+        .analyticsPanel {
+          width: min(760px, 100%);
+          max-height: min(90vh, 840px);
+          overflow: auto;
+          padding: 20px;
+          border-radius: 26px;
+          background: linear-gradient(180deg, #ffffff 0%, #f4f9ff 100%);
+          box-shadow: 0 24px 70px rgba(37, 82, 132, .26);
+        }
+
+        .analyticsHeader {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 18px;
+        }
+
+        .analyticsHeader > div:first-child {
+          display: flex;
+          flex-direction: column;
+          gap: 3px;
+        }
+
+        .analyticsEyebrow {
+          color: #8aa4c1;
+          font-size: .62rem;
+          font-weight: 900;
+          letter-spacing: .12em;
+        }
+
+        .analyticsHeader strong {
+          color: #315d91;
+          font-size: 1.25rem;
+          font-weight: 900;
+        }
+
+        .analyticsHeaderActions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .analyticsHeaderActions button {
+          min-height: 40px;
+          border: 0;
+          border-radius: 13px;
+          font-size: .78rem;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .refreshButton {
+          padding: 0 15px;
+          background: #e8f3ff;
+          color: #315d91;
+        }
+
+        .closeButton {
+          padding: 0 15px;
+          background: linear-gradient(180deg, #a9caf0 0%, #8db7e6 100%);
+          color: #ffffff;
+          box-shadow: 0 4px 11px rgba(74, 125, 181, .20);
+        }
+
+        .summaryGrid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 10px;
+        }
+
+        .summaryCard,
+        .dailyCard,
+        .gradeRow,
+        .weakWordRow {
+          background: #ffffff;
+          box-shadow: 0 6px 17px rgba(72, 113, 158, .11);
+        }
+
+        .summaryCard {
+          min-width: 0;
+          padding: 15px 10px;
+          border-radius: 18px;
+          text-align: center;
+        }
+
+        .summaryCard span,
+        .summaryCard b {
+          display: block;
+        }
+
+        .summaryCard span {
+          color: #7793b3;
+          font-size: .72rem;
+          font-weight: 800;
+        }
+
+        .summaryCard b {
+          margin-top: 5px;
+          color: #315d91;
+          font-size: 1rem;
+          font-weight: 900;
+        }
+
+        .analysisSection {
+          margin-top: 22px;
+        }
+
+        .analysisSection h3 {
+          margin: 0 0 11px;
+          color: #315d91;
+          font-size: .95rem;
+          font-weight: 900;
+        }
+
+        .dailyGrid {
+          display: grid;
+          grid-template-columns: repeat(7, minmax(0, 1fr));
+          gap: 8px;
+        }
+
+        .dailyCard {
+          min-width: 0;
+          padding: 12px 4px;
+          border-radius: 16px;
+          text-align: center;
+        }
+
+        .dailyCard span,
+        .dailyCard b,
+        .dailyCard small {
+          display: block;
+        }
+
+        .dailyCard span {
+          color: #7895b6;
+          font-size: .65rem;
+          font-weight: 800;
+        }
+
+        .dailyCard b {
+          margin-top: 5px;
+          color: #315d91;
+          font-size: .84rem;
+          font-weight: 900;
+        }
+
+        .dailyCard small {
+          margin-top: 4px;
+          color: #6b88aa;
+          font-size: .6rem;
+          font-weight: 800;
+        }
+
+        .gradeList,
+        .weakWordPanel {
+          display: grid;
+          gap: 10px;
+        }
+
+        .gradeRow {
+          display: grid;
+          grid-template-columns: 105px minmax(90px, 1fr) 110px;
+          align-items: center;
+          gap: 14px;
+          padding: 14px 16px;
+          border-radius: 18px;
+        }
+
+        .gradeLabel strong,
+        .gradeLabel span,
+        .gradeNumbers b,
+        .gradeNumbers span {
+          display: block;
+        }
+
+        .gradeLabel strong {
+          color: #315d91;
+          font-size: .88rem;
+          font-weight: 900;
+        }
+
+        .gradeLabel span,
+        .gradeNumbers span {
+          color: #7895b6;
+          font-size: .68rem;
+          font-weight: 800;
+        }
+
+        .gradeTrack {
+          height: 9px;
+          overflow: hidden;
+          border-radius: 999px;
+          background: #e2effb;
+        }
+
+        .gradeTrack span {
+          display: block;
+          height: 100%;
+          border-radius: inherit;
+          background: linear-gradient(90deg, #83b4e3 0%, #4f91cd 100%);
+        }
+
+        .gradeNumbers {
+          text-align: right;
+        }
+
+        .gradeNumbers b {
+          color: #315d91;
+          font-size: .78rem;
+          font-weight: 900;
+        }
+
+        .weakWordRow {
+          display: grid;
+          grid-template-columns: 36px minmax(0, 1fr) auto 42px;
+          align-items: center;
+          gap: 10px;
+          padding: 12px 14px;
+          border-radius: 18px;
+        }
+
+        .rank {
+          width: 30px;
+          height: 30px;
+          display: grid;
+          place-items: center;
+          border-radius: 50%;
+          background: #e5f1fd;
+          color: #315d91;
+          font-size: .72rem;
+          font-weight: 900;
+        }
+
+        .weakWordName,
+        .weakWordMeta {
+          min-width: 0;
+        }
+
+        .weakWordName strong,
+        .weakWordName span,
+        .weakWordMeta b,
+        .weakWordMeta span {
+          display: block;
+        }
+
+        .weakWordName strong {
+          overflow: hidden;
+          color: #315d91;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-size: .9rem;
+          font-weight: 900;
+        }
+
+        .weakWordName span,
+        .weakWordMeta span {
+          color: #7895b6;
+          font-size: .68rem;
+          font-weight: 800;
+        }
+
+        .weakWordMeta {
+          text-align: right;
+        }
+
+        .weakWordMeta b {
+          color: #315d91;
+          font-size: .76rem;
+          font-weight: 900;
+        }
+
+        .speakButton {
+          width: 40px;
+          height: 40px;
+          display: grid;
+          place-items: center;
+          border: 0;
+          border-radius: 14px;
+          background: #e8f3ff;
+          color: #315d91;
+          box-shadow: 0 3px 9px rgba(72, 113, 158, .11);
+          cursor: pointer;
+        }
+
+        .speakButton svg {
+          width: 19px;
+          height: 19px;
+          fill: none;
+          stroke: currentColor;
+          stroke-width: 1.7;
+          stroke-linecap: round;
+          stroke-linejoin: round;
+        }
+
+        .weakWordEmpty {
+          margin: 0;
+          padding: 20px;
+          border-radius: 18px;
+          background: #ffffff;
+          color: #7895b6;
+          text-align: center;
+          font-weight: 800;
+          box-shadow: 0 6px 17px rgba(72, 113, 158, .11);
+        }
 
         @media (max-width: 560px) {
-          .metricGroup { gap: 10px; transform: translateX(-12px); }
-          .detailsButton span { display: none; }
-          .detailsButton { width: 28px; padding: 0; justify-content: center; }
-          .analyticsOverlay { align-items: flex-end; padding: 0; }
-          .analyticsPanel { width: 100%; max-height: 92dvh; padding: 0 16px 20px; border-radius: 18px 18px 0 0; }
-          .analyticsHeader { margin: 0 -16px 16px; padding: 13px 16px; }
-          .summaryGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-          .dailyGrid { grid-template-columns: repeat(7, minmax(42px, 1fr)); overflow-x: auto; }
-          .gradeRow { grid-template-columns: 78px minmax(70px, 1fr) 78px; gap: 8px; }
-          .weakWordRow { grid-template-columns: 20px minmax(0, 1fr) 32px auto; gap: 7px; }
+          .overviewCard {
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 74px;
+            gap: 6px;
+            padding: 7px;
+            border-radius: 18px;
+          }
+
+          .compactMetric {
+            min-height: 54px;
+            flex-direction: column;
+            gap: 2px;
+            border-radius: 14px;
+          }
+
+          .compactMetric span {
+            font-size: .68rem;
+          }
+
+          .compactMetric b {
+            font-size: 1.15rem;
+          }
+
+          .detailsButton {
+            min-width: 74px;
+            min-height: 54px;
+            flex-direction: column;
+            gap: 3px;
+            border-radius: 14px;
+            font-size: .7rem;
+          }
+
+          .analysisGlyph {
+            height: 15px;
+          }
+
+          .analysisGlyph i:nth-child(1) { height: 6px; }
+          .analysisGlyph i:nth-child(2) { height: 10px; }
+          .analysisGlyph i:nth-child(3) { height: 15px; }
+
+          .analyticsOverlay {
+            align-items: flex-end;
+            padding: 0;
+          }
+
+          .analyticsPanel {
+            width: 100%;
+            max-height: 92dvh;
+            padding: 17px 16px 24px;
+            border-radius: 26px 26px 0 0;
+          }
+
+          .analyticsHeader {
+            align-items: flex-start;
+          }
+
+          .analyticsHeaderActions {
+            gap: 6px;
+          }
+
+          .analyticsHeaderActions button {
+            min-height: 38px;
+            padding: 0 12px;
+          }
+
+          .summaryGrid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+          }
+
+          .summaryCard {
+            padding: 13px 8px;
+            border-radius: 16px;
+          }
+
+          .dailyGrid {
+            grid-template-columns: repeat(7, minmax(76px, 1fr));
+            overflow-x: auto;
+            padding: 2px 1px 8px;
+          }
+
+          .gradeRow {
+            grid-template-columns: 82px minmax(65px, 1fr) 92px;
+            gap: 9px;
+            padding: 13px 12px;
+            border-radius: 16px;
+          }
+
+          .weakWordRow {
+            grid-template-columns: 32px minmax(0, 1fr) auto 38px;
+            gap: 8px;
+            padding: 11px 12px;
+            border-radius: 16px;
+          }
+
+          .rank {
+            width: 28px;
+            height: 28px;
+          }
+
+          .speakButton {
+            width: 38px;
+            height: 38px;
+          }
         }
       `}</style>
     </>,
