@@ -3,36 +3,95 @@ import { getSupabaseAdmin } from '../../../lib/supabaseAdmin';
 import { getAppSessionFromRequest } from '../../../lib/auth/appSession';
 
 const PAGE_SIZE = 1000;
-const WORD_CHUNK_SIZE = 500;
 
-async function fetchAllHistory(supabase, appUserId) {
+async function fetchAllRows(queryFactory) {
   const rows = [];
   for (let from = 0;; from += PAGE_SIZE) {
-    const { data, error } = await supabase
-      .from('history')
-      .select('word_id,correct,answered_at')
-      .eq('app_user_id', appUserId)
-      .order('answered_at', { ascending: false })
-      .range(from, from + PAGE_SIZE - 1);
+    const { data, error } = await queryFactory().range(from, from + PAGE_SIZE - 1);
     if (error) throw error;
     rows.push(...(data || []));
     if ((data || []).length < PAGE_SIZE) return rows;
   }
 }
 
-async function fetchWordsByIds(supabase, wordIds) {
-  const rows = [];
-  for (let index = 0; index < wordIds.length; index += WORD_CHUNK_SIZE) {
-    const chunk = wordIds.slice(index, index + WORD_CHUNK_SIZE);
-    if (!chunk.length) continue;
-    const { data, error } = await supabase
-      .from('words')
-      .select('id,english,japanese,phonetic,grade,term,category1,category2,category3,importance')
-      .in('id', chunk);
-    if (error) throw error;
-    rows.push(...(data || []));
+function tokyoDateKey(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function buildDailyActivity(historyRows) {
+  const byDate = new Map();
+  for (const row of historyRows) {
+    const key = tokyoDateKey(row.answered_at);
+    if (!key) continue;
+    const current = byDate.get(key) || { date: key, answers: 0, correct: 0, wrong: 0 };
+    current.answers += 1;
+    if (row.correct === true) current.correct += 1;
+    else current.wrong += 1;
+    byDate.set(key, current);
   }
-  return rows;
+
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(Date.now() - (6 - index) * 24 * 60 * 60 * 1000);
+    const key = tokyoDateKey(date);
+    const item = byDate.get(key) || { date: key, answers: 0, correct: 0, wrong: 0 };
+    return {
+      ...item,
+      accuracy: item.answers ? Math.round((item.correct / item.answers) * 100) : 0
+    };
+  });
+}
+
+function buildGradeAnalysis(words, historyRows) {
+  const wordMap = new Map(words.map((word) => [Number(word.id), word]));
+  const grades = new Map();
+
+  for (const word of words) {
+    const grade = String(word.grade || '未分類');
+    const item = grades.get(grade) || {
+      grade,
+      total_words: 0,
+      studied_word_ids: new Set(),
+      answers: 0,
+      correct: 0,
+      wrong: 0
+    };
+    item.total_words += 1;
+    grades.set(grade, item);
+  }
+
+  for (const row of historyRows) {
+    const word = wordMap.get(Number(row.word_id));
+    if (!word) continue;
+    const grade = String(word.grade || '未分類');
+    const item = grades.get(grade);
+    if (!item) continue;
+    item.studied_word_ids.add(Number(row.word_id));
+    item.answers += 1;
+    if (row.correct === true) item.correct += 1;
+    else item.wrong += 1;
+  }
+
+  return [...grades.values()]
+    .map((item) => ({
+      grade: item.grade,
+      total_words: item.total_words,
+      studied_words: item.studied_word_ids.size,
+      progress_percent: item.total_words ? Math.round((item.studied_word_ids.size / item.total_words) * 100) : 0,
+      answers: item.answers,
+      correct: item.correct,
+      wrong: item.wrong,
+      accuracy: item.answers ? Math.round((item.correct / item.answers) * 100) : 0
+    }))
+    .sort((a, b) => a.grade.localeCompare(b.grade, 'ja', { numeric: true }));
 }
 
 export async function GET(request) {
@@ -41,9 +100,16 @@ export async function GET(request) {
 
   try {
     const supabase = getSupabaseAdmin();
-    const [historyRows, wordsCountResult, sessionsResult] = await Promise.all([
-      fetchAllHistory(supabase, session.appUserId),
-      supabase.from('words').select('id', { count: 'exact', head: true }),
+    const [historyRows, words, sessionsResult] = await Promise.all([
+      fetchAllRows(() => supabase
+        .from('history')
+        .select('word_id,correct,answered_at')
+        .eq('app_user_id', session.appUserId)
+        .order('answered_at', { ascending: false })),
+      fetchAllRows(() => supabase
+        .from('words')
+        .select('id,english,japanese,phonetic,grade,term,category1,category2,category3,importance')
+        .order('id', { ascending: true })),
       supabase
         .from('study_sessions')
         .select('status,completed_questions,total_questions,correct_count,wrong_count,started_at,ended_at')
@@ -52,13 +118,13 @@ export async function GET(request) {
         .limit(20)
     ]);
 
-    if (wordsCountResult.error) throw wordsCountResult.error;
     if (sessionsResult.error) throw sessionsResult.error;
 
     const totalAnswers = historyRows.length;
     const correctAnswers = historyRows.filter((row) => row.correct === true).length;
     const wrongAnswers = totalAnswers - correctAnswers;
     const studiedWordIds = new Set(historyRows.map((row) => Number(row.word_id)).filter(Number.isFinite));
+    const wordMap = new Map(words.map((word) => [Number(word.id), word]));
 
     const wrongByWord = new Map();
     for (const row of historyRows) {
@@ -73,9 +139,6 @@ export async function GET(request) {
       wrongByWord.set(wordId, current);
     }
 
-    const wrongIds = [...wrongByWord.keys()];
-    const wordRows = wrongIds.length ? await fetchWordsByIds(supabase, wrongIds) : [];
-    const wordMap = new Map(wordRows.map((word) => [Number(word.id), word]));
     const weakWords = [...wrongByWord.values()]
       .map((item) => ({ ...item, word: wordMap.get(item.word_id) || null }))
       .filter((item) => item.word)
@@ -87,7 +150,8 @@ export async function GET(request) {
     const recentSessions = sessionsResult.data || [];
     const completedSessions = recentSessions.filter((item) => item.status === 'completed').length;
     const interruptedSessions = recentSessions.filter((item) => item.status === 'interrupted').length;
-    const totalWords = Number(wordsCountResult.count || 0);
+    const totalWords = words.length;
+    const dailyActivity = buildDailyActivity(historyRows);
 
     return NextResponse.json({
       summary: {
@@ -100,10 +164,13 @@ export async function GET(request) {
         progress_percent: totalWords ? Math.round((studiedWordIds.size / totalWords) * 100) : 0,
         weak_words: weakWords.length,
         completed_sessions: completedSessions,
-        interrupted_sessions: interruptedSessions
+        interrupted_sessions: interruptedSessions,
+        active_days_7: dailyActivity.filter((item) => item.answers > 0).length
       },
-      weak_words: weakWords.slice(0, 20),
-      recent_sessions: recentSessions.slice(0, 5)
+      daily_activity: dailyActivity,
+      grade_analysis: buildGradeAnalysis(words, historyRows),
+      weak_words: weakWords.slice(0, 50),
+      recent_sessions: recentSessions.slice(0, 10)
     });
   } catch (error) {
     console.error('Failed to load learning overview:', error);
