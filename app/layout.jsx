@@ -5,6 +5,7 @@
 import QuizKeyboardContinuity from './QuizKeyboardContinuity';
 import LearningOverview from './LearningOverview';
 import WordPickerEnhancer from './WordPickerEnhancer';
+import SelectionPolish from './SelectionPolish';
 
 // 全ページ共通のメタ情報（タブ名など）です。
 export const metadata = {
@@ -21,6 +22,7 @@ export default function RootLayout({ children }) {
         <QuizKeyboardContinuity />
         <LearningOverview />
         <WordPickerEnhancer />
+        <SelectionPolish />
         {children}
       </body>
     </html>
