@@ -3,21 +3,56 @@
 export default function FlatDesignPolish() {
   return (
     <style jsx global>{`
-      /* 既存の「早い・通常・ゆっくり・開始」と同じ柔らかさへ統一 */
-      .wordPickerScreen .importantPriorityBadge {
-        background: #f3a45b !important;
+      /* 「早い・通常」ボタンと同じ、輪郭に頼らない柔らかな色面へ統一 */
+      .questionModeArea :global(button.quizMethodCard),
+      button.quizMethodCard {
+        border: 0 !important;
+        background: #dcecff !important;
+        color: #4f6b94 !important;
+        box-shadow: 0 3px 8px rgba(127, 177, 232, .18) !important;
+      }
+
+      .questionModeArea :global(button.quizMethodCard:hover),
+      button.quizMethodCard:hover {
+        background: #cfe3fb !important;
+      }
+
+      .questionModeArea :global(button.quizMethodCard.quizMethodCardActive),
+      button.quizMethodCard.quizMethodCardActive {
+        border: 0 !important;
+        background: #7fb1e8 !important;
         color: #ffffff !important;
+        box-shadow: 0 4px 10px rgba(127, 177, 232, .28) !important;
+      }
+
+      .wordPickerScreen .importantPriorityBadge,
+      .wordPickerScreen .compactMetaTag.important,
+      .wordPickerScreen .wordTag.important {
+        background: #e9ddff !important;
+        color: #6d4aa8 !important;
         border: 0 !important;
         box-shadow: none !important;
       }
 
       .wordPickerScreen .importantWordRow:not(.selected) {
-        background: #fffaf2 !important;
-        box-shadow: 0 2px 7px rgba(72, 113, 158, .08) !important;
+        background: #f8f3ff !important;
+        box-shadow: 0 2px 7px rgba(112, 82, 158, .08) !important;
+      }
+
+      .wordPickerScreen .mistakeCountBadge.hasMistake {
+        background: #ffe4e8 !important;
+        color: #b74f62 !important;
+      }
+
+      .wordPickerScreen .pickerPrimaryActions .weakFilterActive {
+        border: 0 !important;
+        background: #ffdce3 !important;
+        color: #ad465b !important;
+        box-shadow: 0 3px 8px rgba(190, 76, 100, .14) !important;
       }
 
       .wordPickerScreen .wordRowItem.selected {
-        background: #b9daf6 !important;
+        background: #cfe5fb !important;
         box-shadow: 0 2px 8px rgba(72, 113, 158, .12) !important;
       }
 
@@ -66,8 +101,8 @@ export default function FlatDesignPolish() {
 
       .learningOverviewCompact .compactMetric {
         border: 0 !important;
-        background: #f7fbff !important;
-        box-shadow: none !important;
+        background: #dcecff !important;
+        box-shadow: 0 3px 8px rgba(127, 177, 232, .16) !important;
       }
 
       .learningOverviewCompact .detailsButton {
@@ -80,7 +115,7 @@ export default function FlatDesignPolish() {
 
       .analyticsOverlay {
         padding: 12px !important;
-        background: rgba(52, 76, 104, .24) !important;
+        background: rgba(78, 68, 104, .18) !important;
         backdrop-filter: none !important;
       }
 
@@ -90,9 +125,16 @@ export default function FlatDesignPolish() {
         padding: 16px !important;
         border: 0 !important;
         border-radius: 20px !important;
-        background: #ffffff !important;
-        box-shadow: 0 10px 28px rgba(52, 76, 104, .16) !important;
+        background: #f4effc !important;
+        box-shadow: 0 10px 28px rgba(78, 68, 104, .14) !important;
         overflow-x: hidden !important;
+      }
+
+      .analyticsPanel .analyticsHeader {
+        padding: 12px !important;
+        border: 0 !important;
+        border-radius: 16px !important;
+        background: #ffffff !important;
       }
 
       .analyticsPanel .summaryGrid {
@@ -106,36 +148,61 @@ export default function FlatDesignPolish() {
       .analyticsPanel .weakWordEmpty {
         min-width: 0 !important;
         border: 0 !important;
-        background: #f7fbff !important;
+        background: #ffffff !important;
         box-shadow: none !important;
+      }
+
+      .analyticsPanel .analysisSection h3,
+      .analyticsPanel .analyticsHeader strong {
+        color: #655087 !important;
+      }
+
+      .analyticsPanel .summaryCard span,
+      .analyticsPanel .dailyCard span,
+      .analyticsPanel .dailyCard small,
+      .analyticsPanel .gradeLabel span,
+      .analyticsPanel .gradeNumbers span,
+      .analyticsPanel .weakWordName span,
+      .analyticsPanel .weakWordMeta span {
+        color: #8a7ca0 !important;
+      }
+
+      .analyticsPanel .summaryCard b,
+      .analyticsPanel .dailyCard b,
+      .analyticsPanel .gradeLabel strong,
+      .analyticsPanel .gradeNumbers b,
+      .analyticsPanel .weakWordName strong,
+      .analyticsPanel .weakWordMeta b {
+        color: #655087 !important;
       }
 
       .analyticsPanel .refreshButton,
       .analyticsPanel .speakButton {
         border: 0 !important;
-        background: #edf5ff !important;
-        color: #315d91 !important;
+        background: #eee6f9 !important;
+        color: #655087 !important;
         box-shadow: none !important;
       }
 
       .analyticsPanel .closeButton {
         border: 0 !important;
-        background: #a8c9f0 !important;
+        background: #b9a6dc !important;
         color: #ffffff !important;
-        box-shadow: 0 3px 8px rgba(168, 201, 240, .24) !important;
+        box-shadow: 0 3px 8px rgba(117, 91, 158, .20) !important;
       }
 
       .analyticsPanel .gradeTrack {
-        background: #e2edf8 !important;
+        background: #e6ddf2 !important;
       }
 
       .analyticsPanel .gradeTrack span {
-        background: #7fb1e8 !important;
+        background: #b9a6dc !important;
       }
 
       .analyticsPanel .rank {
         border: 0 !important;
-        background: #e7f2fd !important;
+        background: #eee6f9 !important;
+        color: #655087 !important;
       }
 
       .wordPickerScreen .savePanel .panelCloseButton,
@@ -179,7 +246,7 @@ export default function FlatDesignPolish() {
           width: 100% !important;
           max-width: 100% !important;
           max-height: 92dvh !important;
-          padding: 15px 14px 22px !important;
+          padding: 14px 14px 22px !important;
           border-radius: 20px 20px 0 0 !important;
         }
 
