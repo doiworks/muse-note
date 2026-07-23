@@ -3,6 +3,7 @@
 // "page.jsx doesn't have a root layout" エラーになります。
 
 import QuizKeyboardContinuity from './QuizKeyboardContinuity';
+import LearningOverview from './LearningOverview';
 
 // 全ページ共通のメタ情報（タブ名など）です。
 export const metadata = {
@@ -17,6 +18,7 @@ export default function RootLayout({ children }) {
     <html lang="ja">
       <body>
         <QuizKeyboardContinuity />
+        <LearningOverview />
         {children}
       </body>
     </html>
