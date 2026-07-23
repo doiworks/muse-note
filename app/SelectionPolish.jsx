@@ -6,13 +6,25 @@ export default function SelectionPolish() {
   useEffect(() => {
     let timer = 0;
 
-    function applyPolish() {
-      document.querySelectorAll('.wordPickerScreen .wordRowItem').forEach((row) => {
-        const isImportant = [...row.querySelectorAll('.wordMetaInfo .wordTag')]
-          .some((tag) => tag.textContent?.trim() === '重要');
+    function isImportantOnlyActive() {
+      return [...document.querySelectorAll('.wordPickerScreen .activeFilterChips .filterChip')]
+        .some((chip) => {
+          const text = chip.textContent?.replace(/\s+/g, '') || '';
+          return text.includes('重要') && (text.includes('重要のみ') || text.includes('×'));
+        });
+    }
 
-        // 重要かどうかは、選択状態ではなく単語データ側の「重要」タグだけで判定する。
-        // 表示はCSSの疑似要素に任せるため、別処理で2行目が作り直されても消えない。
+    function applyPolish() {
+      const importantOnly = isImportantOnlyActive();
+
+      document.querySelectorAll('.wordPickerScreen .wordRowItem').forEach((row) => {
+        const hiddenImportantTag = [...row.querySelectorAll('.wordMetaInfo .wordTag')]
+          .some((tag) => tag.textContent?.trim() === '重要');
+        const compactImportantTag = Boolean(row.querySelector('.compactMetaTag.important'));
+        const isImportant = importantOnly || hiddenImportantTag || compactImportantTag;
+
+        // 「重要のみ」の結果はサーバー側で importance=1 に限定済み。
+        // 追加読み込み直後でも、そのページの全行へ即座に重要表示を付ける。
         row.classList.toggle('importantWordRow', isImportant);
         row.querySelectorAll('.importantPriorityBadge').forEach((badge) => badge.remove());
       });
@@ -20,11 +32,17 @@ export default function SelectionPolish() {
 
     const schedule = () => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(applyPolish, 20);
+      timer = window.setTimeout(applyPolish, 0);
     };
 
     const observer = new MutationObserver(schedule);
-    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ['class']
+    });
     schedule();
 
     return () => {
