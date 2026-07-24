@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useState } from 'react';
+import { MUSE_LOGO_DATA_URI } from './museLogoData';
 
 function getSafeRedirect(searchParams) {
   const redirectPath = searchParams.get('redirect');
@@ -25,7 +26,6 @@ function LoginForm() {
       setPreviewError('パスワードを入力してください。');
       return;
     }
-
     setPreviewError('');
     setIsSubmitting(true);
     try {
@@ -35,7 +35,7 @@ function LoginForm() {
         body: JSON.stringify({ token })
       });
       await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error('入力内容を確認してください。');
+      if (!response.ok) throw new Error();
       router.replace(redirectPath);
       router.refresh();
     } catch {
@@ -53,40 +53,37 @@ function LoginForm() {
 
   return (
     <main className="loginPage">
-      <div className="backgroundGlow glowOne" aria-hidden="true" />
-      <div className="backgroundGlow glowTwo" aria-hidden="true" />
+      <span className="shape shapeOne" aria-hidden="true" />
+      <span className="shape shapeTwo" aria-hidden="true" />
+      <span className="shape shapeThree" aria-hidden="true" />
+      <span className="dots dotsOne" aria-hidden="true" />
+      <span className="dots dotsTwo" aria-hidden="true" />
 
-      <section className="loginCard" aria-labelledby="login-title">
-        <div className="brandArea">
-          <div className="brandMark" aria-hidden="true">
-            <span className="brandPaper" />
-            <span className="brandPencil" />
-            <strong>M</strong>
-          </div>
-          <p className="brandName">MUSE NOTE</p>
-          <h1 id="login-title">ことばを、毎日の力に。</h1>
-          <p className="loginLead">
-            LINEでつなぐと、学習履歴や保存した単語セットを自分専用で残せます。
-          </p>
+      <section className="loginShell" aria-labelledby="login-title">
+        <div className="logoFrame">
+          <img className="museLogo" src={MUSE_LOGO_DATA_URI} alt="muse NOTE" />
         </div>
 
-        <a className="lineLoginButton" href={lineLoginUrl}>
-          <span className="lineBubble" aria-hidden="true">LINE</span>
-          <span>LINEでつづける</span>
-        </a>
+        <div className="loginCard">
+          <h1 id="login-title">LINEでログインしますか</h1>
+          <span className="titleLine" aria-hidden="true" />
+          <p>単語練習アプリ</p>
 
-        {lineError && (
-          <p className="loginError" role="alert">
-            LINEログインを完了できませんでした。もう一度お試しください。
-          </p>
-        )}
+          <a className="lineButton" href={lineLoginUrl}>
+            <span className="lineMark" aria-hidden="true">LINE</span>
+            <span className="buttonLine" aria-hidden="true" />
+            <strong>LINEでログイン</strong>
+          </a>
 
-        <p className="privacyNote">ログイン後も、LINEへ勝手に投稿されることはありません。</p>
+          {lineError && (
+            <p className="loginError" role="alert">LINEログインを完了できませんでした。もう一度お試しください。</p>
+          )}
+        </div>
 
-        <div className={`privateAccess ${privateAccessOpen ? 'open' : ''}`}>
+        <div className="privateArea">
           <button
             type="button"
-            className="privateAccessTrigger"
+            className="privateTrigger"
             onClick={togglePrivateAccess}
             aria-expanded={privateAccessOpen}
             aria-label="追加メニュー"
@@ -95,7 +92,7 @@ function LoginForm() {
           </button>
 
           {privateAccessOpen && (
-            <form className="privateAccessForm" onSubmit={handleSubmit}>
+            <form className="privateForm" onSubmit={handleSubmit}>
               <input
                 type="password"
                 value={token}
@@ -108,26 +105,17 @@ function LoginForm() {
               <button type="submit" disabled={isSubmitting || !token.trim()}>
                 {isSubmitting ? '確認中…' : '続ける'}
               </button>
-              {previewError && <p className="privateAccessError" role="alert">{previewError}</p>}
+              {previewError && <p className="privateError" role="alert">{previewError}</p>}
             </form>
           )}
         </div>
       </section>
 
       <style jsx>{`
-        :global(*) {
-          box-sizing: border-box;
-        }
-
-        :global(html),
+        :global(*) { box-sizing: border-box; }
+        :global(html), :global(body) { min-height: 100%; margin: 0; background: #f3f8fe; }
         :global(body) {
-          min-height: 100%;
-          margin: 0;
-          background: #eef6ff;
-        }
-
-        :global(body) {
-          color: #315d91;
+          color: #274f7d;
           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Yu Gothic", sans-serif;
         }
 
@@ -138,292 +126,235 @@ function LoginForm() {
           display: grid;
           place-items: center;
           overflow: hidden;
-          padding: 28px 18px;
+          padding: 30px 16px 18px;
           background:
-            radial-gradient(circle at 50% 0%, rgba(255, 255, 255, .96), rgba(255, 255, 255, 0) 42%),
-            linear-gradient(180deg, #f8fbff 0%, #e9f4ff 100%);
+            radial-gradient(circle at 50% 0%, rgba(255,255,255,.98) 0, rgba(255,255,255,.72) 34%, transparent 62%),
+            linear-gradient(180deg, #edf5fd 0%, #fbfdff 48%, #edf5fd 100%);
         }
 
-        .backgroundGlow {
+        .shape {
+          position: absolute;
+          z-index: -2;
+          display: block;
+          border-radius: 999px;
+          background: rgba(211, 228, 247, .46);
+          pointer-events: none;
+        }
+        .shapeOne { width: 390px; height: 390px; top: -190px; left: -150px; }
+        .shapeTwo { width: 520px; height: 420px; top: -100px; right: -260px; transform: rotate(28deg); opacity: .65; }
+        .shapeThree { width: 620px; height: 470px; bottom: -300px; left: -120px; transform: rotate(20deg); opacity: .58; }
+
+        .dots {
           position: absolute;
           z-index: -1;
-          border-radius: 999px;
-          filter: blur(2px);
-          opacity: .72;
+          width: 150px;
+          height: 150px;
+          opacity: .48;
+          background-image: radial-gradient(circle, #bfd3e9 0 5px, transparent 5.5px);
+          background-size: 42px 42px;
         }
+        .dotsOne { top: 18px; left: 18px; }
+        .dotsTwo { right: -8px; bottom: 0; }
 
-        .glowOne {
-          top: -110px;
-          right: -90px;
-          width: 300px;
-          height: 300px;
-          background: #cfe5fb;
-        }
-
-        .glowTwo {
-          bottom: -130px;
-          left: -100px;
-          width: 340px;
-          height: 340px;
-          background: #dcecff;
-        }
-
-        .loginCard {
-          width: min(100%, 430px);
-          padding: 38px 30px 22px;
-          border: 0;
-          border-radius: 28px;
-          background: rgba(255, 255, 255, .94);
-          box-shadow: 0 18px 45px rgba(72, 113, 158, .16);
-          text-align: center;
-        }
-
-        .brandArea {
+        .loginShell {
+          width: min(100%, 510px);
           display: flex;
           flex-direction: column;
           align-items: center;
+          gap: clamp(30px, 5vh, 50px);
         }
 
-        .brandMark {
-          position: relative;
-          width: 82px;
-          height: 82px;
-          display: grid;
-          place-items: center;
-          margin-bottom: 13px;
-          border-radius: 25px;
-          background: linear-gradient(150deg, #a8c9f0 0%, #7fb1e8 100%);
-          box-shadow: 0 10px 24px rgba(91, 146, 202, .25);
+        .logoFrame {
+          width: clamp(188px, 50vw, 248px);
+          aspect-ratio: 1;
+          padding: 0;
+          border-radius: 28%;
+          background: rgba(255,255,255,.5);
+          box-shadow: 0 20px 48px rgba(75,112,153,.14);
         }
 
-        .brandMark strong {
-          position: relative;
-          z-index: 3;
-          color: #ffffff;
-          font-size: 2.2rem;
-          font-weight: 900;
-          letter-spacing: -.08em;
-          transform: translateX(-1px);
+        .museLogo {
+          width: 100%;
+          height: 100%;
+          display: block;
+          object-fit: cover;
+          border-radius: 24%;
         }
 
-        .brandPaper {
-          position: absolute;
-          inset: 16px 18px 16px 17px;
-          border-radius: 13px;
-          background: rgba(255, 255, 255, .18);
-          transform: rotate(-5deg);
-        }
-
-        .brandPencil {
-          position: absolute;
-          z-index: 4;
-          right: 14px;
-          bottom: 13px;
-          width: 11px;
-          height: 42px;
-          border-radius: 8px 8px 3px 3px;
-          background: #ffffff;
-          box-shadow: 0 2px 5px rgba(49, 93, 145, .15);
-          transform: rotate(38deg);
-          transform-origin: center bottom;
-        }
-
-        .brandPencil::after {
-          content: '';
-          position: absolute;
-          left: 2px;
-          bottom: -7px;
-          width: 0;
-          height: 0;
-          border-left: 4px solid transparent;
-          border-right: 4px solid transparent;
-          border-top: 8px solid #d8e8fa;
-        }
-
-        .brandName {
-          margin: 0;
-          color: #5b83b4;
-          font-size: .82rem;
-          font-weight: 900;
-          letter-spacing: .22em;
+        .loginCard {
+          width: 100%;
+          padding: clamp(34px, 6vw, 48px) clamp(22px, 6vw, 38px) clamp(28px, 5vw, 38px);
+          border-radius: 36px;
+          background: rgba(255,255,255,.92);
+          box-shadow: 0 18px 50px rgba(75,112,153,.13);
+          text-align: center;
+          backdrop-filter: blur(10px);
         }
 
         h1 {
-          margin: 13px 0 9px;
-          color: #315d91;
-          font-size: clamp(1.45rem, 6vw, 1.85rem);
-          line-height: 1.35;
-          letter-spacing: .02em;
-        }
-
-        .loginLead {
-          max-width: 330px;
           margin: 0;
-          color: #6f8daf;
-          font-size: .91rem;
-          font-weight: 650;
-          line-height: 1.75;
+          color: #244b78;
+          font-size: clamp(1.42rem, 5.5vw, 1.88rem);
+          font-weight: 800;
+          line-height: 1.4;
+          letter-spacing: .015em;
         }
 
-        .lineLoginButton {
+        .titleLine {
+          width: 66px;
+          height: 5px;
+          display: block;
+          margin: 24px auto 21px;
+          border-radius: 999px;
+          background: #c8dbef;
+        }
+
+        .loginCard > p:not(.loginError) {
+          margin: 0;
+          color: #8496ad;
+          font-size: clamp(.98rem, 4vw, 1.18rem);
+          font-weight: 650;
+          letter-spacing: .06em;
+        }
+
+        .lineButton {
           width: 100%;
-          min-height: 58px;
+          min-height: 68px;
           display: flex;
           align-items: center;
           justify-content: center;
-          gap: 12px;
-          margin-top: 28px;
-          border-radius: 17px;
-          background: #06c755;
-          color: #ffffff;
-          font-size: 1rem;
-          font-weight: 900;
+          gap: 18px;
+          margin-top: clamp(34px, 7vw, 48px);
+          padding: 0 22px;
+          border-radius: 24px;
+          background: linear-gradient(135deg, #477daf 0%, #6b9acb 100%);
+          color: #fff;
+          font-size: clamp(1rem, 4.5vw, 1.2rem);
           text-decoration: none;
-          box-shadow: 0 8px 18px rgba(6, 199, 85, .22);
-          transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
+          box-shadow: 0 12px 26px rgba(66,113,160,.24);
+          transition: transform .15s ease, box-shadow .15s ease, filter .15s ease;
+        }
+        .lineButton:hover { filter: brightness(1.025); box-shadow: 0 15px 30px rgba(66,113,160,.29); transform: translateY(-1px); }
+        .lineButton:active { transform: scale(.99); }
+        .lineButton strong { font-weight: 850; letter-spacing: .035em; }
+
+        .lineMark {
+          position: relative;
+          flex: 0 0 auto;
+          min-width: 50px;
+          height: 36px;
+          display: grid;
+          place-items: center;
+          border-radius: 13px;
+          background: #fff;
+          color: #4f7fae;
+          font-size: .68rem;
+          font-weight: 950;
+          letter-spacing: -.03em;
+        }
+        .lineMark::after {
+          content: '';
+          position: absolute;
+          left: 10px;
+          bottom: -7px;
+          border-top: 9px solid #fff;
+          border-right: 9px solid transparent;
+          transform: rotate(8deg);
         }
 
-        .lineLoginButton:hover {
-          background: #05b94e;
-          box-shadow: 0 10px 22px rgba(6, 199, 85, .28);
-          transform: translateY(-1px);
-        }
+        .buttonLine { width: 1px; height: 34px; background: rgba(255,255,255,.45); }
 
-        .lineLoginButton:active {
-          transform: scale(.99);
-        }
-
-        .lineLoginButton:focus-visible,
-        .privateAccessTrigger:focus-visible,
-        .privateAccessForm input:focus-visible,
-        .privateAccessForm button:focus-visible {
-          outline: 3px solid rgba(127, 177, 232, .42);
+        .lineButton:focus-visible,
+        .privateTrigger:focus-visible,
+        .privateForm input:focus-visible,
+        .privateForm button:focus-visible {
+          outline: 3px solid rgba(127,177,232,.46);
           outline-offset: 3px;
         }
 
-        .lineBubble {
-          min-width: 40px;
-          height: 27px;
-          display: grid;
-          place-items: center;
-          border-radius: 8px;
-          background: #ffffff;
-          color: #06b84e;
-          font-size: .62rem;
-          font-weight: 950;
-          letter-spacing: -.02em;
-        }
-
-        .loginError,
-        .privateAccessError {
-          margin: 14px 0 0;
-          color: #b34d60;
-          font-size: .82rem;
-          font-weight: 800;
-          line-height: 1.5;
-        }
-
-        .privacyNote {
-          margin: 16px 0 0;
-          color: #8ca1bb;
-          font-size: .72rem;
+        .loginError, .privateError {
+          margin: 15px 0 0 !important;
+          color: #b34d60 !important;
+          font-size: .82rem !important;
+          font-weight: 800 !important;
           line-height: 1.55;
+          letter-spacing: 0 !important;
         }
 
-        .privateAccess {
-          min-height: 34px;
-          margin-top: 13px;
-          padding-top: 2px;
+        .privateArea {
+          width: min(100%, 430px);
+          min-height: 30px;
+          margin-top: -38px;
+          text-align: center;
         }
 
-        .privateAccessTrigger {
-          min-width: 42px;
+        .privateTrigger {
+          min-width: 44px;
           height: 30px;
           padding: 0 10px;
           border: 0;
           border-radius: 999px;
           background: transparent;
-          color: #b4c3d5;
-          font-size: .78rem;
+          color: #b5c4d5;
+          font-size: .76rem;
           font-weight: 900;
-          letter-spacing: .1em;
+          letter-spacing: .12em;
           cursor: pointer;
         }
+        .privateTrigger:hover { background: rgba(255,255,255,.66); color: #8da3bd; }
 
-        .privateAccessTrigger:hover {
-          background: #f1f6fc;
-          color: #8da3bd;
-        }
-
-        .privateAccessForm {
+        .privateForm {
           display: grid;
           grid-template-columns: minmax(0, 1fr) 88px;
           gap: 9px;
           margin-top: 8px;
           padding: 12px;
-          border-radius: 16px;
-          background: #f3f8fd;
+          border-radius: 17px;
+          background: rgba(255,255,255,.9);
+          box-shadow: 0 10px 28px rgba(75,112,153,.11);
         }
-
-        .privateAccessForm input,
-        .privateAccessForm button {
+        .privateForm input, .privateForm button {
           min-height: 44px;
           border: 0;
           border-radius: 12px;
           font: inherit;
         }
-
-        .privateAccessForm input {
+        .privateForm input {
           min-width: 0;
           padding: 0 13px;
-          background: #ffffff;
+          background: #fff;
           color: #315d91;
           box-shadow: inset 0 0 0 1px #dce8f5;
         }
-
-        .privateAccessForm input::placeholder {
-          color: #9bacc0;
-        }
-
-        .privateAccessForm button {
+        .privateForm input::placeholder { color: #9bacc0; }
+        .privateForm button {
           padding: 0 12px;
-          background: #a8c9f0;
-          color: #ffffff;
+          background: #8fb5dc;
+          color: #fff;
           font-weight: 900;
           cursor: pointer;
         }
-
-        .privateAccessForm button:disabled {
-          cursor: default;
-          opacity: .55;
-        }
-
-        .privateAccessError {
-          grid-column: 1 / -1;
-          margin-top: 0;
-        }
+        .privateForm button:disabled { cursor: default; opacity: .55; }
+        .privateError { grid-column: 1 / -1; margin-top: 0 !important; }
 
         @media (max-width: 520px) {
-          .loginPage {
-            align-items: center;
-            padding: 18px 14px;
-          }
+          .loginPage { padding: 24px 14px 14px; }
+          .loginShell { gap: 34px; }
+          .logoFrame { width: min(52vw, 206px); }
+          .loginCard { padding: 34px 20px 28px; border-radius: 29px; }
+          .lineButton { min-height: 64px; gap: 13px; padding: 0 16px; border-radius: 21px; }
+          .lineMark { min-width: 45px; height: 33px; }
+          .privateArea { margin-top: -24px; }
+          .privateForm { grid-template-columns: minmax(0, 1fr) 80px; padding: 10px; }
+        }
 
-          .loginCard {
-            padding: 31px 20px 18px;
-            border-radius: 24px;
-          }
-
-          .brandMark {
-            width: 74px;
-            height: 74px;
-            border-radius: 22px;
-          }
-
-          .privateAccessForm {
-            grid-template-columns: minmax(0, 1fr) 80px;
-            padding: 10px;
-          }
+        @media (max-height: 700px) {
+          .loginPage { align-items: start; overflow-y: auto; padding-top: 20px; }
+          .loginShell { gap: 24px; }
+          .logoFrame { width: 156px; }
+          .loginCard { padding-top: 28px; padding-bottom: 24px; }
+          .lineButton { margin-top: 28px; }
+          .privateArea { margin-top: -14px; }
         }
       `}</style>
     </main>
@@ -432,7 +363,7 @@ function LoginForm() {
 
 function LoginLoading() {
   return (
-    <main style={{ minHeight: '100dvh', display: 'grid', placeItems: 'center', background: '#eef6ff', color: '#6f8daf', fontFamily: 'sans-serif' }}>
+    <main style={{ minHeight: '100dvh', display: 'grid', placeItems: 'center', background: '#f3f8fe', color: '#6f8daf', fontFamily: 'sans-serif' }}>
       読み込み中…
     </main>
   );
