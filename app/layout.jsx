@@ -9,6 +9,7 @@ import SelectionPolish from './SelectionPolish';
 import FlatDesignPolish from './FlatDesignPolish';
 import ColorContrastPolish from './ColorContrastPolish';
 import MainScreenPolish from './MainScreenPolish';
+import ProgressiveHintSpeech from './ProgressiveHintSpeech';
 
 // 全ページ共通のメタ情報（タブ名など）です。
 export const metadata = {
@@ -23,6 +24,7 @@ export default function RootLayout({ children }) {
     <html lang="ja">
       <body>
         <QuizKeyboardContinuity />
+        <ProgressiveHintSpeech />
         <LearningOverview />
         <WordPickerEnhancer />
         <SelectionPolish />
