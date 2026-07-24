@@ -8,6 +8,7 @@ import WordPickerEnhancer from './WordPickerEnhancer';
 import SelectionPolish from './SelectionPolish';
 import FlatDesignPolish from './FlatDesignPolish';
 import ColorContrastPolish from './ColorContrastPolish';
+import MainScreenPolish from './MainScreenPolish';
 
 // 全ページ共通のメタ情報（タブ名など）です。
 export const metadata = {
@@ -27,6 +28,7 @@ export default function RootLayout({ children }) {
         <SelectionPolish />
         <FlatDesignPolish />
         <ColorContrastPolish />
+        <MainScreenPolish />
         {children}
       </body>
     </html>
